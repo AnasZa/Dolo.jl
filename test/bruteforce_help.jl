@@ -269,14 +269,17 @@ function ssmul(A,B)
 
 end
 
-
+function destack0(x::Array{Float64,3},n_m::Int)
+   xx=collect(x)
+   return [xx[i, :, :] for i=1:n_m]
+end
 
 function d_filt_dx(res,jres,S_ij,n_m,N,n_x,dumdr; precomputed=false)
 
-    xx=collect(res)
-    res_m = [xx[i, :, :] for i=1:n_m]
+    # xx=collect(res)
+    # res_m = [xx[i, :, :] for i=1:n_m]
 
-    Dolo.set_values!(dumdr,res_m)
+    Dolo.set_values!(dumdr,destack0(res, n_m))
     i = 1
     j = 1
     for i in 1:n_m

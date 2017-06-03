@@ -108,3 +108,36 @@ it
 lam0
 # function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, verbose=false)
 tot[:,3,:]
+
+steps=3
+
+for i_bckstps in 1:steps, lam in 1:steps
+  println(i_bckstps)
+  if i_bckstps ==10
+    break
+  end
+end
+
+
+i_bckstps
+lam=1
+function destack0(x::Array{Float64,3},n_m::Int)
+   xx=collect(x)
+   return [xx[i, :, :] for i=1:n_m]
+end
+
+tot
+# tot1 = destack0(tot, n_m)
+new_x = x-destack0(tot, n_m)*lam
+
+# cat(1,x...)
+# reshape(cat(1,x...), 2,50,2)
+
+
+new_err = euler_residuals(f,g,s,new_x,ddr,dprocess,parms,set_dr=true)
+#    if complementarities
+new_err = abs(maximum(new_err))
+# if new_err<=err_0
+#       break
+# end
+err_2 = abs(maximum(tot))
