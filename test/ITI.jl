@@ -57,87 +57,105 @@ jres = zeros(n_m,n_m,N_s,n_x,n_x)
 S_ij = zeros(n_m,n_m,N_s,n_s)
 
 ######### Loop     for it in range(maxit):
+it=0
+it_invert=0
+tol=1e-08
+maxit=1000
+err_0=100
+err_2=100
+lam0=0.0
+while it <= maxit && err_0>tol
+   it += 1
+  #  println(it)
+   jres = zeros(n_m,n_m,N_s,n_x,n_x)
+   S_ij = zeros(n_m,n_m,N_s,n_s)
 
-it = 1
+   # compute derivatives and residuals:
+   # res: residuals
+   # dres: derivatives w.r.t. x
+   # jres: derivatives w.r.t. ~x
+   # dres: derivatives w.r.t. x
+   # jres: derivatives w.r.t. ~x
+   # fut_S: future states
+   Dolo.set_values!(ddr,x)
 
-# compute derivatives and residuals:
-# res: residuals
-# dres: derivatives w.r.t. x
-# jres: derivatives w.r.t. ~x
-# dres: derivatives w.r.t. x
-# jres: derivatives w.r.t. ~x
-# fut_S: future states
-# ddr.set_values(x)  again????
+   ff = SerialDifferentiableFunction(u-> euler_residuals(f,g,s,u,ddr,dprocess,parms;
+                                     with_jres=false,set_dr=false))
 
-ff = SerialDifferentiableFunction(u-> euler_residuals(f,g,s,u,ddr,dprocess,parms;
-                                  with_jres=false,set_dr=false))
+   res, dres = ff(x)
 
-res, dres = ff(x)
+   # dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
+   dres = reshape(dres, 2,50,2,2)
 
-# dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
-dres = reshape(dres, 2,50,2,2)
+   junk, jres, fut_S = euler_residuals(f,g,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+     # if there are complementerities, we modify derivatives
+   err_0 = abs(maximum(res))
 
-junk, jres, fut_S = euler_residuals(f,g,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
-  # if there are complementerities, we modify derivatives
-err_0 = abs(maximum(res))
-
-jres *= -1.0
-jres[1,1,1:5,:,:]
-M=jres
-# M[1,1,1:5,:,:]
+   jres *= -1.0
+   jres[1,1,1:5,:,:]
+   M=jres
+   # M[1,1,1:5,:,:]
 
 
 
 
-X=zeros(n_m,N_s,n_x,n_x)
-for i_m in 1:n_m
-    for j_m in 1:n_m
-        # M = jres[i_m,j_m,:,:,:]
-        X = deepcopy(dres[i_m,:,:,:])
-        for n in 1:N_s
-           X[n,:,:], M[i_m,j_m,n,:,:] = invert(collect(X[n,:,:]), M[i_m,j_m,n,:,:])
-        end
-    end
+   X=zeros(n_m,N_s,n_x,n_x)
+   for i_m in 1:n_m
+       for j_m in 1:n_m
+           # M = jres[i_m,j_m,:,:,:]
+           X = deepcopy(dres[i_m,:,:,:])
+           for n in 1:N_s
+              X[n,:,:], M[i_m,j_m,n,:,:] = invert(collect(X[n,:,:]), M[i_m,j_m,n,:,:])
+           end
+       end
+   end
+
+   ####################
+   # Invert Jacobians
+
+   tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
+
+   steps=3
+
+  #  for i_bckstps in 1:steps, lam in 1:steps
+  #    println(i_bckstps)
+  #    if i_bckstps ==10
+  #      break
+  #    end
+  #  end
+
+
+  #  i_bckstps
+   lam=1
+
+   tot
+   # tot1 = destack0(tot, n_m)
+   new_x = x-destack0(tot, n_m)*lam
+
+   # cat(1,x...)
+   # reshape(cat(1,x...), 2,50,2)
+   new_err = euler_residuals(f,g,s,new_x,ddr,dprocess,parms,set_dr=true)
+   #    if complementarities
+   new_err = abs(maximum(new_err))
+   # if new_err<=err_0
+   #       break
+   # end
+   err_2 = abs(maximum(tot))
+
+   # print...
+   x = new_x
+   println(it)
 end
-
-####################
-# Invert Jacobians
-
-tot, it, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
-it
 lam0
-# function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, verbose=false)
-tot[:,3,:]
 
-steps=3
-
-for i_bckstps in 1:steps, lam in 1:steps
-  println(i_bckstps)
-  if i_bckstps ==10
-    break
-  end
-end
+err_0
+typeof(tol)
+it
 
 
-i_bckstps
-lam=1
-function destack0(x::Array{Float64,3},n_m::Int)
-   xx=collect(x)
-   return [xx[i, :, :] for i=1:n_m]
-end
+# tot, it, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
+lam0
 
-tot
-# tot1 = destack0(tot, n_m)
-new_x = x-destack0(tot, n_m)*lam
-
-# cat(1,x...)
-# reshape(cat(1,x...), 2,50,2)
-
-
-new_err = euler_residuals(f,g,s,new_x,ddr,dprocess,parms,set_dr=true)
-#    if complementarities
-new_err = abs(maximum(new_err))
-# if new_err<=err_0
-#       break
-# end
-err_2 = abs(maximum(tot))
+ImprovedTimeIterationResult(it, err_0, err_2, tol, lam0, it_invert, 5.0)
+typeof(5.0)
+###### radius_jac

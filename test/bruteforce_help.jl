@@ -351,3 +351,30 @@ function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, v
     tot += ddx*lam/(1-lam)
     return tot, it, lam
 end
+
+
+type ImprovedTimeIterationResult
+    # dr::AbstractDecisionRule
+    N::Int
+    f_x::Float64
+    d_x::Float64
+    # Time_residuals::
+    # Time_inversion::
+    # Time_search::
+    tol::Float64
+    Lambda::Float64
+    N_invert::Float64
+    N_search::Float64
+end
+
+converged(r::ImprovedTimeIterationResult) = r.f_x
+
+function Base.show(io::IO, r::ImprovedTimeIterationResult)
+    @printf io "Results of Improved Time Iteration Algorithm\n"
+    @printf io " * Number of iterations: %s\n" string(r.N)
+    # @printf io " * Complementarities: %s\n" string(r.complementarities)
+    # @printf io " * Decision Rule type: %s\n" string(typeof(r.dr))
+    @printf io " * Convergence: %s\n" converged(r)
+    @printf io " * Contractivity: %s\n" string(r.Lambda)
+    @printf io "   * |x - x'| < %.1e: %s\n" r.tol r.f_x
+end
