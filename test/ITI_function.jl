@@ -1,8 +1,8 @@
-function improved_time_iteration(model:: Dolo.AbstractModel, dprocess,
+function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.AbstractDiscretizedProcess,
                                  init_dr::Dolo.AbstractDecisionRule;
                                  maxbsteps::Int=10, verbose::Bool=false,
                                  tol::Float64=1e-8, smaxit::Int=500, maxit::Int=1000,
-                                 complementarities::Bool=false, compute_radius::Bool=false)
+                                 complementarities::Bool=false, compute_radius::Bool=false, details::Bool=true)
 
    f = Dolo.arbitrage
    g = Dolo.transition
@@ -58,8 +58,6 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess,
       # res: residuals
       # dres: derivatives w.r.t. x
       # jres: derivatives w.r.t. ~x
-      # dres: derivatives w.r.t. x
-      # jres: derivatives w.r.t. ~x
       # fut_S: future states
       Dolo.set_values!(ddr,x)
 
@@ -94,7 +92,7 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess,
       ####################
       # Invert Jacobians
 
-      tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
+      tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S; verbose=verbose,filt=ddr_filt)
 
       i_bckstps=0
       new_err=err_0
@@ -109,12 +107,13 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess,
       x = new_x
    end
    Dolo.set_values!(ddr,x)
-  #  ImprovedTimeIterationResult(ddr, it, err_0, err_2, tol, lam0, it_invert, 5.0),
-  if verbose ==true
-    return  ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, tol, lam0, it_invert, 5.0)
-  else
-    return ddr.dr
-  end
+   #  ImprovedTimeIterationResult(ddr, it, err_0, err_2, tol, lam0, it_invert, 5.0),
+   if !details
+     return ddr.dr
+   else
+     converged = err_0<tol
+     ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, converged, tol, lam0, it_invert, 5.0)
+   end
 
 end
 

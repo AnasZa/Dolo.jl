@@ -12,19 +12,16 @@ filename = joinpath(path,"examples","models","rbc_dtcc_mc.yaml")
 # model = Dolo.Model(Pkg.dir("Dolo", "examples", "models", "rbc_dtcc_mc.yaml"), print_code=true)
 model = Dolo.yaml_import(filename)
 
-dprocess = Dolo.discretize( model.exogenous )
-init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
-# improved_time_iteration(model, dprocess, init_dr)
 
-# typeof(model)<:Dolo.AbstractModel
-# dr_ITI  = improved_time_iteration(model)
 @time dr_ITI  = improved_time_iteration(model)
 
-@time dr_ITI_2  = improved_time_iteration(model, dprocess,dr_ITI.dr)
+dprocess = Dolo.discretize( model.exogenous )
+init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
+@time dr_ITI_2  = improved_time_iteration(model, dprocess,init_dr)
 
 @time dr_TI  = Dolo.time_iteration(model)
 
-
+typeof(Array{Float64,3})<:AbstractVector
 
 
 ##################################################################
@@ -95,7 +92,6 @@ x=x0
 ## memory allocation
 jres = zeros(n_m,n_m,N_s,n_x,n_x)
 S_ij = zeros(n_m,n_m,N_s,n_s)
-
 ######### Loop     for it in range(maxit):
 it=0
 it_invert=0
@@ -109,6 +105,7 @@ res_init = euler_residuals(f,g,s,x,ddr,dprocess,parms ,set_dr=false, jres=jres, 
 err_0 = maximum(abs, res_init)
 err_2= 0.0
 lam0=0.0
+
 while it <= maxit && err_0>tol
    it += 1
   #  println(it)

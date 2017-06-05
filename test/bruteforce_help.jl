@@ -102,7 +102,7 @@ function SerialDifferentiableFunction(f, epsilon=1e-8)
       dv[:,:, i] = reshape(dd,N_s*n_m,n_x) # (1dim) corresponds to equations, in raws you first stuck derivatives wrt 1rst exo state, 2nd, etc
       end
       dv_AA = AxisArray(dv, Axis{:N}(1:n_m*N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
-        return [v0, dv_AA]
+      return [v0, dv_AA]
     end
 
 
@@ -125,16 +125,16 @@ function SerialDifferentiableFunction(f, epsilon=1e-8)
          dv[:,:, i] = dd
       end
       dv_AA = AxisArray(dv, Axis{:N}(1:N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
-        return [v0, dv_AA]
-    end
+      return [v0, dv_AA]
 
+    end
     df
 end
 
 
 
 
-function swaplines(i,j,M::Array{Float64,3})
+function swaplines(i::Int,j::Int,M::Array{Float64,3})
     n0, n1, n2 = size(M)
     for k in 1:n1
         for l in 1:n2
@@ -146,7 +146,7 @@ function swaplines(i,j,M::Array{Float64,3})
     return M
 end
 
-function swaplines(i,j,M::Array{Float64,2})
+function swaplines(i::Int,j::Int,M::Array{Float64,2})
     n = size(M,2)
     for k in 1:n
         t = M[i,k]
@@ -156,7 +156,7 @@ function swaplines(i,j,M::Array{Float64,2})
     return M
 end
 
-function swaplines(i,j,M::Array{Float64,1})
+function swaplines(i::Int,j::Int,M::Array{Float64,1})
     n = size(M,1)
     t = M[i]
     M[i] = M[j]
@@ -166,7 +166,7 @@ end
 
 
 
-function divide(i,c,M::Array{Float64,3})
+function divide(i::Int,c::Float64,M::Array{Float64,3})
     n0, n1, n2 = size(M)
     for k in 1:n1
         for l in 1:n2
@@ -176,7 +176,7 @@ function divide(i,c,M::Array{Float64,3})
     return M
 end
 
-function divide(i,c,M::Array{Float64,2})
+function divide(i::Int,c::Float64,M::Array{Float64,2})
     n = size(M,1)
     for k in 1:n
         M[i,k] /= c
@@ -186,13 +186,13 @@ end
 
 
 
-function divide(i,c,M::Array{Float64,1})
+function divide(i::Int,c::Float64,M::Array{Float64,1})
     M[i] /= c
     return M
 end
 
 
-function substract(i,j,c,M::Array{Float64,3})
+function substract(i::Int,j::Int,c::Float64, M::Array{Float64,3})
     n0, n1, n2 = size(M)
     for k in 1:n1
         for l in r1:n2
@@ -202,7 +202,7 @@ function substract(i,j,c,M::Array{Float64,3})
     return M
 end
 
-function substract(i,j,c,M::Array{Float64,2})
+function substract(i::Int,j::Int,c::Float64,M::Array{Float64,2})
     # Li <- Li - c*Lj
     n = size(M,1)
     for k in 1:n
@@ -210,14 +210,15 @@ function substract(i,j,c,M::Array{Float64,2})
     end
     return M
 end
-function substract(i,j,c,M::Array{Float64,1})
+
+function substract(i::Int,j::Int,c::Float64,M::Array{Float64,1})
     M[i] = M[i] - c*M[j]
     return M
 end
 
 
 
-function invert(A,B)
+function invert(A::Array{Float64,2},B::Array{Float64})
    for i in 1:size(A,1)
          max_err = -1.0
          max_i = 0
@@ -254,7 +255,7 @@ function invert(A,B)
 end
 
 
-function ssmul(A,B)
+function ssmul(A::Array{Float64,3},B::Array{Float64,2})
     # simple serial_mult (matrix times vector)
     N,a,b = size(A)
     NN,b = size(B)
@@ -275,14 +276,13 @@ function destack0(x::Array{Float64,3},n_m::Int)
    return [xx[i, :, :] for i=1:n_m]
 end
 
-function d_filt_dx(res,jres,S_ij,n_m,dumdr; precomputed=false)
+function d_filt_dx(res::Array{Float64,3},jres::Array{Float64,5},S_ij::Array{Float64,4},
+                   dumdr; precomputed::Bool=false)
 
     # xx=collect(res)
     # res_m = [xx[i, :, :] for i=1:n_m]
-
+    n_m=size(res,1)
     Dolo.set_values!(dumdr,destack0(res, n_m))
-    i = 1
-    j = 1
     for i in 1:n_m
         res[i,:,:] = 0
         for j in 1:n_m
@@ -295,14 +295,14 @@ function d_filt_dx(res,jres,S_ij,n_m,dumdr; precomputed=false)
             res[i,:,:] += ssmul(A,B)
         end
     end
-    res
     return res
 end
 
 
-function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, verbose=false)
+function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5},
+                    fut_S::Array{Float64,4}; filt= nothing, tol::Float64=1e-10,
+                    maxit::Int=1000, verbose::Bool=false)
     n_m, N_s, n_x = size(res)
-    err0 = 0.0
     ddx = zeros(n_m,N_s,n_x)
     A=deepcopy(dres)
     B = deepcopy(res)
@@ -319,34 +319,32 @@ function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, v
     end
     lam = -1.0
     lam_max = -1.0
-    err_0 = abs(maximum(ddx))
+    err_0 = maximum(abs, ddx)
     tot = deepcopy(ddx)
-    verbose=true
+
     if verbose==true
     print("Starting inversion")
     end
-    maxit=1000
     err=err_0
-    tol=1e-08
-    verbose && @printf "%-6s%-12s%-5s\n" "err" "lam" "lam_max"
+    verbose && println(repeat("-", 35))
+    verbose && @printf "%-6s%-12s%-5s\n" "err" "gain" "gain_max"
+    verbose && println(repeat("-", 35))
+
     it = 0
     while it<maxit && err>tol
       it +=1
       precomputed=false
 
-      ddx = d_filt_dx(ddx,jres,fut_S,n_m,dumdr; precomputed=precomputed)
+      ddx = d_filt_dx(ddx,jres,fut_S,dumdr; precomputed=precomputed)
       # might also work
       # d_filt_dx(ddx,jres,fut_S,n_m,N,n_x,dumdr; precomputed=precomputed)
 
-      err = abs(maximum(ddx))
+      err = maximum(abs, ddx)
       lam = err/err_0
       lam_max = max(lam_max, lam)
-      verbose && @printf "%-6s%-12s%-5s\n" err lam lam_max
-      # if verbose==true
-      #     print('- {} | {} | {}'.format(err, lam, lam_max))
-      # end
       tot += ddx
       err_0 = err
+      verbose && @printf "%-6i%-12.2e%-5i\n" err lam lam_max
     end
     tot += ddx*lam/(1-lam)
     return tot, it, lam
@@ -358,7 +356,7 @@ type ImprovedTimeIterationResult
     N::Int
     f_x::Float64
     d_x::Float64
-    # Time_residuals::
+    x_converged::Bool
     # Time_inversion::
     # Time_search::
     tol::Float64
@@ -367,7 +365,7 @@ type ImprovedTimeIterationResult
     N_search::Float64
 end
 
-converged(r::ImprovedTimeIterationResult) = r.f_x
+converged(r::ImprovedTimeIterationResult) = r.x_converged
 
 function Base.show(io::IO, r::ImprovedTimeIterationResult)
     @printf io "Results of Improved Time Iteration Algorithm\n"
@@ -376,5 +374,5 @@ function Base.show(io::IO, r::ImprovedTimeIterationResult)
     @printf io " * Decision Rule type: %s\n" string(typeof(r.dr))
     @printf io " * Convergence: %s\n" converged(r)
     @printf io " * Contractivity: %s\n" string(r.Lambda)
-    @printf io "   * |x - x'| < %.1e: %s\n" r.tol r.f_x
+    @printf io "   * |x - x'| < %.1e: %s\n" r.tol r.x_converged
 end
