@@ -5,13 +5,41 @@ path = Pkg.dir("Dolo")
 import Dolo
 using AxisArrays
 include("bruteforce_help.jl")
-
+include("ITI_function.jl")
 
 ###############################################################################
-
 filename = joinpath(path,"examples","models","rbc_dtcc_mc.yaml")
 # model = Dolo.Model(Pkg.dir("Dolo", "examples", "models", "rbc_dtcc_mc.yaml"), print_code=true)
 model = Dolo.yaml_import(filename)
+
+dprocess = Dolo.discretize( model.exogenous )
+init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
+# improved_time_iteration(model, dprocess, init_dr)
+
+# typeof(model)<:Dolo.AbstractModel
+# dr_ITI  = improved_time_iteration(model)
+@time dr_ITI  = improved_time_iteration(model)
+
+@time dr_ITI_2  = improved_time_iteration(model, dprocess,dr_ITI.dr)
+
+@time dr_TI  = Dolo.time_iteration(model)
+
+
+
+
+##################################################################
+filename = joinpath(path,"examples","models","rbc_dtcc_mc.yaml")
+# model = Dolo.Model(Pkg.dir("Dolo", "examples", "models", "rbc_dtcc_mc.yaml"), print_code=true)
+model = Dolo.yaml_import(filename)
+s = model.grid.nodes
+# controls today
+N_s = size(s,1)
+n_x = size(model.calibration[:controls],1)
+N_m = Dolo.n_nodes(model.exogenous.grid)
+
+maxbsteps=10
+tol=1e-08
+typeof(maxbsteps)
 
 f = Dolo.arbitrage
 g = Dolo.transition
@@ -37,19 +65,31 @@ N_m = Dolo.n_nodes(dprocess.grid) # number of grid points for exo_vars
 
 # x0 = repmat([(model.calibration[:controls])'],N*n_x^2,1)
 # x0 = repmat(model.calibration[:controls]',N)
-x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
-ddr=Dolo.DecisionRule(dprocess.grid, model.grid, n_x)
-ddr_filt = Dolo.DecisionRule(dprocess.grid, model.grid,n_x)
+# x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
+
+init_dr=Dolo.ConstantDecisionRule(model.calibration[:controls])
+
+x0 = [init_dr(i, Dolo.nodes(model.grid)) for i=1:N_m]
+
+# ddr=Dolo.DecisionRule(dprocess.grid, model.grid, n_x)
+# ddr_filt = Dolo.DecisionRule(dprocess.grid, model.grid,n_x)
+
+ddr = Dolo.CachedDecisionRule(dprocess, model.grid, x0)
+ddr_filt = Dolo.CachedDecisionRule(dprocess, model.grid, x0)
+
+typeof(ddr.dr)<:Dolo.AbstractDecisionRule
+
 ddr== ddr_filt
 Dolo.set_values!(ddr,x0)
 
+steps = 0.5.^collect(0:maxbsteps)
 
 x=x0
 
 
 # checking the euler_residuals functions, res = 0 ##########################
-@time dr = Dolo.time_iteration(model, verbose=true, maxit=10000, details=false)
-euler_residuals(f,g,s,x,dr,dprocess,parms, with_jres=false,set_dr=true)
+# @time dr = Dolo.time_iteration(model, verbose=true, maxit=10000, details=false)
+# euler_residuals(f,g,s,x,dr,dprocess,parms, with_jres=false,set_dr=true)
 # Doesn't seem to work, but the same thing in python ...
 
 ## memory allocation
@@ -61,8 +101,13 @@ it=0
 it_invert=0
 tol=1e-08
 maxit=1000
-err_0=100
-err_2=100
+# err_0=100
+# err_2=100
+
+res_init = euler_residuals(f,g,s,x,ddr,dprocess,parms ,set_dr=false, jres=jres, S_ij=S_ij)
+  # if there are complementerities, we modify derivatives
+err_0 = maximum(abs, res_init)
+err_2= 0.0
 lam0=0.0
 while it <= maxit && err_0>tol
    it += 1
@@ -115,47 +160,26 @@ while it <= maxit && err_0>tol
 
    tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
 
-   steps=3
+   i_bckstps=0
+   new_err=err_0
+   new_x = x
+   while new_err>=err_0 && i_bckstps<length(steps)
+     i_bckstps +=1
+     new_x = x-destack0(tot, n_m)*steps[i_bckstps]
+     new_res = euler_residuals(f,g,s,new_x,ddr,dprocess,parms,set_dr=true)
+     new_err = maximum(abs, new_res)
+   end
 
-  #  for i_bckstps in 1:steps, lam in 1:steps
-  #    println(i_bckstps)
-  #    if i_bckstps ==10
-  #      break
-  #    end
-  #  end
-
-
-  #  i_bckstps
-   lam=1
-
-   tot
-   # tot1 = destack0(tot, n_m)
-   new_x = x-destack0(tot, n_m)*lam
-
-   # cat(1,x...)
-   # reshape(cat(1,x...), 2,50,2)
-   new_err = euler_residuals(f,g,s,new_x,ddr,dprocess,parms,set_dr=true)
-   #    if complementarities
-   new_err = abs(maximum(new_err))
-   # if new_err<=err_0
-   #       break
-   # end
-   err_2 = abs(maximum(tot))
+   err_2 = maximum(abs,tot)
 
    # print...
    x = new_x
    println(it)
 end
-lam0
+Dolo.set_values!(ddr,x)
 
-err_0
-typeof(tol)
-it
+ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, tol, lam0, it_invert, 5.0)
 
 
-# tot, it, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
-lam0
 
-ImprovedTimeIterationResult(it, err_0, err_2, tol, lam0, it_invert, 5.0)
-typeof(5.0)
 ###### radius_jac

@@ -5,7 +5,7 @@ function euler_residuals(f, g, s::AbstractArray, x::Array{Array{Float64,2},1}, d
                          dprocess, parms::AbstractArray; with_jres=false, set_dr=true,
                          jres=nothing, S_ij=nothing)
 
-    if set_dr ==trues
+    if set_dr ==true
       Dolo.set_values!(dr,x)
     end
 
@@ -71,8 +71,9 @@ function euler_residuals(f, g, s::AbstractArray, x::Array{Float64,2}, dr,
                          dprocess, parms::AbstractArray; with_jres=false, set_dr=true,
                          jres=nothing, S_ij=nothing)
    N_m = Dolo.n_nodes(dprocess.grid)
-   x_reshaped = Dolo.destack0(xi,N_m)
-   return euler_residuals(f,g,s,x_reshaped,dr,dprocess,parms; kwargs...)
+   x_reshaped = Dolo.destack0(x,N_m)
+   return euler_residuals(f,g,s,x_reshaped,dr,dprocess,parms; with_jres=false, set_dr=true,
+                          jres=nothing, S_ij=nothing)
 end
 
 
@@ -274,7 +275,7 @@ function destack0(x::Array{Float64,3},n_m::Int)
    return [xx[i, :, :] for i=1:n_m]
 end
 
-function d_filt_dx(res,jres,S_ij,n_m,N,n_x,dumdr; precomputed=false)
+function d_filt_dx(res,jres,S_ij,n_m,dumdr; precomputed=false)
 
     # xx=collect(res)
     # res_m = [xx[i, :, :] for i=1:n_m]
@@ -300,7 +301,7 @@ end
 
 
 function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, verbose=false)
-    n_m, N, n_x = size(res)
+    n_m, N_s, n_x = size(res)
     err0 = 0.0
     ddx = zeros(n_m,N_s,n_x)
     A=deepcopy(dres)
@@ -310,11 +311,11 @@ function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, v
            ddx[i_m,n,:]= invert(A[i_m,n,:,:],collect(B[i_m,n,:]))[2]
         end
     end
-    filt = ddr_filt
+
     if filt == nothing
       error("No filter supplied.")
     else
-      dumdr = ddr_filt
+      dumdr = filt
     end
     lam = -1.0
     lam_max = -1.0
@@ -332,9 +333,8 @@ function invert_jac(res,dres,jres,fut_S; filt= nothing, tol=1e-10, maxit=1000, v
     while it<maxit && err>tol
       it +=1
       precomputed=false
-      dumdr
 
-      ddx = d_filt_dx(ddx,jres,fut_S,n_m,N,n_x,dumdr; precomputed=precomputed)
+      ddx = d_filt_dx(ddx,jres,fut_S,n_m,dumdr; precomputed=precomputed)
       # might also work
       # d_filt_dx(ddx,jres,fut_S,n_m,N,n_x,dumdr; precomputed=precomputed)
 
@@ -354,7 +354,7 @@ end
 
 
 type ImprovedTimeIterationResult
-    # dr::AbstractDecisionRule
+    dr::Dolo.AbstractDecisionRule
     N::Int
     f_x::Float64
     d_x::Float64
@@ -373,7 +373,7 @@ function Base.show(io::IO, r::ImprovedTimeIterationResult)
     @printf io "Results of Improved Time Iteration Algorithm\n"
     @printf io " * Number of iterations: %s\n" string(r.N)
     # @printf io " * Complementarities: %s\n" string(r.complementarities)
-    # @printf io " * Decision Rule type: %s\n" string(typeof(r.dr))
+    @printf io " * Decision Rule type: %s\n" string(typeof(r.dr))
     @printf io " * Convergence: %s\n" converged(r)
     @printf io " * Contractivity: %s\n" string(r.Lambda)
     @printf io "   * |x - x'| < %.1e: %s\n" r.tol r.f_x
