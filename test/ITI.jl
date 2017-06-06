@@ -8,20 +8,20 @@ include("bruteforce_help.jl")
 include("ITI_function.jl")
 
 ###############################################################################
-filename = joinpath(path,"examples","models","rbc_dtcc_mc.yaml")
-# model = Dolo.Model(Pkg.dir("Dolo", "examples", "models", "rbc_dtcc_mc.yaml"), print_code=true)
-model = Dolo.yaml_import(filename)
-
-
-@time dr_ITI  = improved_time_iteration(model)
-
-dprocess = Dolo.discretize( model.exogenous )
-init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
-@time dr_ITI_2  = improved_time_iteration(model, dprocess,init_dr)
-
-@time dr_TI  = Dolo.time_iteration(model)
-
-typeof(Array{Float64,3})<:AbstractVector
+# filename = joinpath(path,"examples","models","rbc_dtcc_mc.yaml")
+# # model = Dolo.Model(Pkg.dir("Dolo", "examples", "models", "rbc_dtcc_mc.yaml"), print_code=true)
+# model = Dolo.yaml_import(filename)
+#
+#
+# @time dr_ITI  = improved_time_iteration(model)
+#
+# dprocess = Dolo.discretize( model.exogenous )
+# init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
+# @time dr_ITI_2  = improved_time_iteration(model, dprocess,init_dr)
+#
+# @time dr_TI  = Dolo.time_iteration(model)
+#
+# typeof(Array{Float64,3})<:AbstractVector
 
 
 ##################################################################
@@ -38,8 +38,8 @@ maxbsteps=10
 tol=1e-08
 typeof(maxbsteps)
 
-f = Dolo.arbitrage
-g = Dolo.transition
+# f = Dolo.arbitrage
+# g = Dolo.transition
 # x_lb = model.functions['controls_lb']
 # x_ub = model.functions['controls_ub']
 
@@ -92,6 +92,8 @@ x=x0
 ## memory allocation
 jres = zeros(n_m,n_m,N_s,n_x,n_x)
 S_ij = zeros(n_m,n_m,N_s,n_s)
+
+# fut_S = copy(S_ij)
 ######### Loop     for it in range(maxit):
 it=0
 it_invert=0
@@ -100,7 +102,12 @@ maxit=1000
 # err_0=100
 # err_2=100
 
-res_init = euler_residuals(f,g,s,x,ddr,dprocess,parms ,set_dr=false, jres=jres, S_ij=S_ij)
+res_init = euler_residuals(model,s,x,ddr,dprocess,parms ,set_dr=false, jres=jres, S_ij=S_ij)
+raduis_jac=true
+if raduis_jac == true
+  res=zeros(res_init)
+  dres = zeros(N_s*N_m, n_x, n_x)
+end
   # if there are complementerities, we modify derivatives
 err_0 = maximum(abs, res_init)
 err_2= 0.0
@@ -121,7 +128,7 @@ while it <= maxit && err_0>tol
    # fut_S: future states
    Dolo.set_values!(ddr,x)
 
-   ff = SerialDifferentiableFunction(u-> euler_residuals(f,g,s,u,ddr,dprocess,parms;
+   ff = SerialDifferentiableFunction(u-> euler_residuals(model,s,u,ddr,dprocess,parms;
                                      with_jres=false,set_dr=false))
 
    res, dres = ff(x)
@@ -129,7 +136,9 @@ while it <= maxit && err_0>tol
    # dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
    dres = reshape(dres, 2,50,2,2)
 
-   junk, jres, fut_S = euler_residuals(f,g,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+  #  junk, jres, fut_S = euler_residuals(model,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+   junk, jres, S_ij = euler_residuals(model,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+  #  S_ij=fut_S
      # if there are complementerities, we modify derivatives
    err_0 = abs(maximum(res))
 
@@ -155,7 +164,8 @@ while it <= maxit && err_0>tol
    ####################
    # Invert Jacobians
 
-   tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S; verbose=true,filt=ddr_filt)
+  #  tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S,ddr_filt; verbose=true)
+   tot, it_invert, lam0 = invert_jac(res,dres,jres,S_ij,ddr_filt; verbose=true)
 
    i_bckstps=0
    new_err=err_0
@@ -163,7 +173,7 @@ while it <= maxit && err_0>tol
    while new_err>=err_0 && i_bckstps<length(steps)
      i_bckstps +=1
      new_x = x-destack0(tot, n_m)*steps[i_bckstps]
-     new_res = euler_residuals(f,g,s,new_x,ddr,dprocess,parms,set_dr=true)
+     new_res = euler_residuals(model,s,new_x,ddr,dprocess,parms,set_dr=true)
      new_err = maximum(abs, new_res)
    end
 
@@ -173,10 +183,87 @@ while it <= maxit && err_0>tol
    x = new_x
    println(it)
 end
+x
 Dolo.set_values!(ddr,x)
 
 ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, tol, lam0, it_invert, 5.0)
 
 
-
 ###### radius_jac
+function radius_jac(res::AbstractArray,dres::AbstractArray,jres::AbstractArray,S_ij::AbstractArray,
+                    ddr_filt; tol=tol, maxit=1000, verbose=false, precomputed = false)
+
+   n_m, N_s, n_x = size(res)
+   err0 = 0.0
+   ddx = rand(size(res))*10^9
+
+   lam = 0.0
+   lam_max = 0.0
+
+   lambdas = zeros(maxit)
+   if verbose==true
+       print("Starting inversion. Radius_Jac")
+   end
+
+   for nn in 1:maxit
+     ddx /= maximum(abs, ddx)
+     d_filt_dx(ddx,jres,S_ij,dumdr; precomputed=precomputed)
+     lam = maximum(abs, ddx)
+     lam_max = max(lam_max, lam)
+     lambdas[nn] = lam
+   end
+
+   return (lam, lam_max, lambdas)
+
+ end
+
+dres
+lam, lam_max, lambdas = radius_jac(res,dres,jres,S_ij,ddr_filt)
+
+typeof(S_ij)<:AbstractArray
+
+
+n_m, N_s, n_x = size(res_init)
+
+err0 = 0.0
+
+# import numpy.random
+# rand(size(res_init))
+ddx = rand(size(res_init))*10000000000
+
+# if filt == nothing
+#   error("No filter supplied.")
+# else
+#   dumdr = filt
+# end
+dumdr = ddr_filt
+
+# if isinstance(dumdr, SmolyakDecisionRule):
+#     for i in range(n_m):
+#         for j in range(n_m):
+#             dumdr.precompute_Phi(i,j,fut_S[i,j,...])
+#     precomputed = True
+# else:
+    # precomputed = False
+precomputed = false
+# jres[...] *= -1.0
+# jres = -jres
+
+lam = 0.0
+lam_max = 0.0
+
+lambdas = zeros(maxit)
+if verbose==true
+    print("Starting inversion. Radius_Jac")
+end
+
+for nn in 1:maxit
+  ddx /= maximum(abs, ddx)
+  d_filt_dx(ddx,jres,S_ij,dumdr; precomputed=precomputed)
+  lam = maximum(abs, ddx)
+  lam_max = max(lam_max, lam)
+  lambdas[nn] = lam
+end
+
+lambdas
+# return (lam, lam_max, lambdas)

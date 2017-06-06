@@ -1,7 +1,7 @@
 
 
 
-function euler_residuals(f, g, s::AbstractArray, x::Array{Array{Float64,2},1}, dr,
+function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, dr,
                          dprocess, parms::AbstractArray; with_jres=false, set_dr=true,
                          jres=nothing, S_ij=nothing)
 
@@ -41,16 +41,16 @@ function euler_residuals(f, g, s::AbstractArray, x::Array{Array{Float64,2},1}, d
           M=(hcat([e' for e in M_prep]...))'
           prob = Q[i_ms, I_ms]
 
-          S = g(model, m, s, xm, M, parms)
+          S = Dolo.transition(model, m, s, xm, M, parms)
           XM = dr(I_ms, S)
 
           if with_jres==true
-              ff = SerialDifferentiableFunction(u->f(model, m,s,xm,M,S,u,parms))
+              ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s,xm,M,S,u,parms))
               rr, rr_XM = ff(XM)
               jres[i_ms,I_ms,:,:,:] = prob*rr_XM
               S_ij[i_ms,I_ms,:,:] = S
           else
-              rr = f(model, m,s,xm,M,S,XM,parms)
+              rr = Dolo.arbitrage(model, m,s,xm,M,S,XM,parms)
           end
           res[i_ms,:,:] += prob*rr
         end
@@ -67,12 +67,12 @@ function euler_residuals(f, g, s::AbstractArray, x::Array{Array{Float64,2},1}, d
 end
 #############################################################################
 # I am still not sure we need it
-function euler_residuals(f, g, s::AbstractArray, x::Array{Float64,2}, dr,
+function euler_residuals(model, s::AbstractArray, x::Array{Float64,2}, dr,
                          dprocess, parms::AbstractArray; with_jres=false, set_dr=true,
                          jres=nothing, S_ij=nothing)
    N_m = Dolo.n_nodes(dprocess.grid)
    x_reshaped = Dolo.destack0(x,N_m)
-   return euler_residuals(f,g,s,x_reshaped,dr,dprocess,parms; with_jres=false, set_dr=true,
+   return euler_residuals(model,s,x_reshaped,dr,dprocess,parms; with_jres=false, set_dr=true,
                           jres=nothing, S_ij=nothing)
 end
 
@@ -278,9 +278,6 @@ end
 
 function d_filt_dx(res::Array{Float64,3},jres::Array{Float64,5},S_ij::Array{Float64,4},
                    dumdr; precomputed::Bool=false)
-
-    # xx=collect(res)
-    # res_m = [xx[i, :, :] for i=1:n_m]
     n_m=size(res,1)
     Dolo.set_values!(dumdr,destack0(res, n_m))
     for i in 1:n_m
@@ -300,7 +297,7 @@ end
 
 
 function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5},
-                    fut_S::Array{Float64,4}; filt= nothing, tol::Float64=1e-10,
+                    fut_S::Array{Float64,4}, dumdr; tol::Float64=1e-10,
                     maxit::Int=1000, verbose::Bool=false)
     n_m, N_s, n_x = size(res)
     ddx = zeros(n_m,N_s,n_x)
@@ -312,11 +309,11 @@ function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5
         end
     end
 
-    if filt == nothing
-      error("No filter supplied.")
-    else
-      dumdr = filt
-    end
+    # if filt == nothing
+    #   error("No filter supplied.")
+    # else
+    #   dumdr = filt
+    # end
     lam = -1.0
     lam_max = -1.0
     err_0 = maximum(abs, ddx)
@@ -350,6 +347,12 @@ function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5
     return tot, it, lam
 end
 
+function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5},
+                    fut_S::Array{Float64,4}; tol::Float64=1e-10,
+                    maxit::Int=1000, verbose::Bool=false)
+  return error("No filter supplied.")
+end
+
 
 type ImprovedTimeIterationResult
     dr::Dolo.AbstractDecisionRule
@@ -376,3 +379,32 @@ function Base.show(io::IO, r::ImprovedTimeIterationResult)
     @printf io " * Contractivity: %s\n" string(r.Lambda)
     @printf io "   * |x - x'| < %.1e: %s\n" r.tol r.x_converged
 end
+
+###### radius_jac
+function radius_jac(res::AbstractArray,dres::AbstractArray,jres::AbstractArray,
+                    S_ij::AbstractArray,
+                    dumdr; tol=1e-08, maxit=1000, verbose=false, precomputed = false)
+
+   n_m, N_s, n_x = size(res)
+   err0 = 0.0
+   ddx = rand(size(res))*10^9
+
+   lam = 0.0
+   lam_max = 0.0
+
+   lambdas = zeros(maxit)
+   if verbose==true
+       print("Starting inversion. Radius_Jac")
+   end
+
+   for nn in 1:maxit
+     ddx /= maximum(abs, ddx)
+     d_filt_dx(ddx,jres,S_ij,dumdr; precomputed=precomputed)
+     lam = maximum(abs, ddx)
+     lam_max = max(lam_max, lam)
+     lambdas[nn] = lam
+   end
+
+   return (lam, lam_max, lambdas)
+
+ end
