@@ -1,3 +1,24 @@
+"""
+Computes a global solution for a model via backward Improved Time Iteration. The algorithm is applied to the residuals of the arbitrage equations. The idea is to solve the system G(x) = 0 as a big nonlinear system in x, where the inverted Jacobian matrix is approximated by an infinite sum (Neumann series).
+
+If the initial guess for the decision rule is not explicitly provided, the initial guess is provided by `ConstantDecisionRule`.
+If the stochastic process for the model is not explicitly provided, the process is taken from the default provided by the model object, `model.exogenous`
+
+# Arguments
+* `model::NumericModel`: Model object that describes the current model environment.
+* `dprocess`: The stochastic process associated with the exogenous variables in the model.
+* `init_dr`: Initial guess for the decision rule.
+* `maxbsteps` Maximum number of backsteps.
+* `verbose` Set "true" if you would like to see the details of the infinite sum convergence.
+* `smaxit` Maximum number of iterations to compute the Neumann series.
+* `complementarities`
+* `compute_radius`
+* `details` If false returns only a decision rule dr
+# Returns
+* `dr`: Solved decision rule.
+* `details` about the iterations is specified.
+"""
+
 function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.AbstractDiscretizedProcess,
                                  init_dr::Dolo.AbstractDecisionRule;
                                  maxbsteps::Int=10, verbose::Bool=false,

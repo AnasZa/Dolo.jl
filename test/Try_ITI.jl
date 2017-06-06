@@ -2,10 +2,11 @@
 path = Pkg.dir("Dolo")
 
 # Pkg.build("QuantEcon")
+import Bruteforce_module
 import Dolo
-using AxisArrays
-include("bruteforce_help.jl")
-include("ITI_function.jl")
+# using AxisArrays
+# include("bruteforce_help.jl")
+# include("ITI_function.jl")
 
 ###############################################################################
 filename = joinpath(path,"examples","models","rbc_dtcc_mc.yaml")
