@@ -20,23 +20,23 @@ If the list of current controls `x` is provided as a two-dimensional array (`Lis
 # Returns
 * `res`: Residuals of the arbitrage equation associated with each exogenous shock.
 """
-function residual(model, dprocess::AbstractDiscretizedProcess, s, x::Array{Array{Float64,2},1}, p, dr)
+function euler_residuals(model, dprocess::AbstractDiscretizedProcess, s, x::Array{Array{Float64,2},1}, p, dr)
     N = size(s, 1)
     res = [zeros(size(x[1])) for i=1:length(x)]
     S = zeros(size(s))
     # X = zeros(size(x[1]))
-    for i=1:size(res, 1)
+    for i in 1:size(res, 1)
         m = node(dprocess, i)
-        for j=1:n_inodes(dprocess, i)
+        for j in 1:n_inodes(dprocess, i)
             M = inode(dprocess, i, j)
             w = iweight(dprocess, i, j)
             # Update the states
-            for n=1:N
+            for n in 1:N
                 S[n, :] = Dolo.transition(model, m, s[n, :], x[i][n, :], M, p)
             end
 
             X = dr(i, j, S)
-            for n=1:N
+            for n in 1:N
                 res[i][n, :] += w*Dolo.arbitrage(model, m, s[n, :], x[i][n, :], M, S[n, :], X[n, :], p)
             end
         end
@@ -44,28 +44,19 @@ function residual(model, dprocess::AbstractDiscretizedProcess, s, x::Array{Array
     return res
 end
 
-using NLsolve
-
-
-function residual(model, dprocess, s, x::Array{Float64,2}, p, dr)
+function euler_residuals(model, dprocess, s, x::Array{Float64,2}, p, dr)
     n_m = max(1, n_nodes(dprocess))
     xx = destack0(x, n_m)
-    res = residual(model, dprocess, s, xx, p, dr)
+    res = euler_residuals(model, dprocess, s, xx, p, dr)
     return stack0(res)
 end
 
-"""
-#TODO
-"""
 function destack0(x::Array{Float64,2}, n_m::Int)
     N = div(size(x, 1), n_m)
     xx = reshape(x, N, n_m, size(x, 2))
     return Array{Float64,2}[xx[:, i, :] for i=1:n_m]
 end
 
-"""
-#TODO
-"""
 function stack0(x::Array{Array{Float64,2},1})::Array{Float64,2}
      return cat(1, x...)
 end
@@ -89,7 +80,7 @@ function Base.show(io::IO, r::TimeIterationResult)
     @printf io "   * |x - x'| < %.1e: %s\n" r.x_tol r.x_converged
 end
 
- """
+"""
 Computes a global solution for a model via backward time iteration. The time iteration is applied to the residuals of the arbitrage equations.
 
 If the initial guess for the decision rule is not explicitly provided, the initial guess is provided by `ConstantDecisionRule`.
@@ -102,17 +93,22 @@ If the stochastic process for the model is not explicitly provided, the process 
 # Returns
 * `dr`: Solved decision rule.
 """
-function time_iteration(model, dprocess::AbstractDiscretizedProcess, init_dr;
-      verbose::Bool=true, maxit::Int=100, tol::Float64=1e-8, details::Bool=true)
+function time_iteration(model::Model, dprocess::AbstractDiscretizedProcess,
+                        grid, init_dr;
+                        verbose::Bool=true, details::Bool=true,
+                        maxit::Int=100, tol_η::Float64=1e-8,
+                        solver=Dict())
 
-    # get grid for endogenous
-    grid = model.grid
-    # grid = CartesianGrid(gg.a, gg.b, gg.orders)  # temporary compatibility
+    if get(solver, :type, :__missing__) == :direct
+        return time_iteration_direct(
+            model, dprocess, grid, init_dr; verbose=verbose, details=details,
+            maxit=maxit, tol_η=tol_η
+        )
+    end
 
     endo_nodes = nodes(grid)
     N = size(endo_nodes, 1)
-    n_s_endo = size(endo_nodes,2)
-
+    n_s_endo = size(endo_nodes, 2)
     n_s_exo = n_nodes(dprocess)
 
     # initial guess
@@ -124,8 +120,8 @@ function time_iteration(model, dprocess::AbstractDiscretizedProcess, init_dr;
     x0 = [init_dr(i, endo_nodes) for i=1:nsd]
 
     n_x = length(model.calibration[:controls])
-    lb = Array(Float64, N*nsd, n_x)
-    ub = Array(Float64, N*nsd, n_x)
+    lb = Array{Float64}(N*nsd, n_x)
+    ub = Array{Float64}(N*nsd, n_x)
     ix = 0
     for i in 1:nsd
         node_i = node(dprocess, i)
@@ -141,8 +137,7 @@ function time_iteration(model, dprocess::AbstractDiscretizedProcess, init_dr;
     dr = CachedDecisionRule(dprocess, grid, x0)
 
     # loop option
-    init_res = residual(model, dprocess, endo_nodes, x0, p, dr)
-    it = 0
+    init_res = euler_residuals(model, dprocess, endo_nodes, x0, p, dr)
     err = maximum(abs, stack0(init_res))
     err_0 = err
 
@@ -150,15 +145,16 @@ function time_iteration(model, dprocess::AbstractDiscretizedProcess, init_dr;
     verbose && println(repeat("-", 35))
     verbose && @printf "%-6i%-12.2e%-12.2e%-5i\n" 0 err NaN 0
 
-    while it<maxit && err>tol
+    it = 0
+    while it<maxit && err>tol_η
 
         it += 1
 
         set_values!(dr, x0)
 
         xx0 = stack0(x0)
-        fobj(u) = residual(model, dprocess, endo_nodes, u, p, dr)
-        xx1, nit = serial_solver(fobj, xx0, lb, ub, maxit=10, verbose=false)
+        fobj(u) = euler_residuals(model, dprocess, endo_nodes, u, p, dr)
+        xx1, nit = serial_solver(fobj, xx0, lb, ub; solver...)
         x1 = destack0(xx1, nsd)
 
         err = maximum(abs, xx1 - xx0)
@@ -174,28 +170,34 @@ function time_iteration(model, dprocess::AbstractDiscretizedProcess, init_dr;
     if !details
         return dr.dr
     else
-        converged = err<tol
-        TimeIterationResult(dr.dr, it, true, converged, tol, err)
+        converged = err < tol_η
+        TimeIterationResult(dr.dr, it, true, converged, tol_η, err)
     end
 
 end
 
+# get grid for endogenous
+function time_iteration(model, dprocess, dr; grid=Dict(), kwargs...)
+    grid = get_grid(model, options=grid)
+    return time_iteration(model, dprocess, grid, dr;  kwargs...)
+end
 
 # get stupid initial rule
-function time_iteration(model, dprocess::AbstractDiscretizedProcess; kwargs...)
+function time_iteration(model, dprocess::AbstractDiscretizedProcess; grid=Dict(), kwargs...)
+
     init_dr = ConstantDecisionRule(model.calibration[:controls])
-    return time_iteration(model, dprocess, init_dr;  kwargs...)
+    return time_iteration(model, dprocess, init_dr;  grid=grid, kwargs...)
 end
 
 
-function time_iteration(model, init_dr; kwargs...)
+function time_iteration(model, init_dr; grid=Dict(), kwargs...)
     dprocess = discretize( model.exogenous )
-    return time_iteration(model, dprocess, init_dr; kwargs...)
+    return time_iteration(model, dprocess, init_dr; grid=grid, kwargs...)
 end
 
 
-function time_iteration(model; kwargs...)
+function time_iteration(model; grid=Dict(), kwargs...)
     dprocess = discretize( model.exogenous )
     init_dr = ConstantDecisionRule(model.calibration[:controls])
-    return time_iteration(model, dprocess, init_dr; kwargs...)
+    return time_iteration(model, dprocess, init_dr; grid=grid, kwargs...)
 end
