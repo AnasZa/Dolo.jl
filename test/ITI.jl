@@ -37,108 +37,210 @@ N_m = Dolo.n_nodes(model.exogenous.grid)
 maxbsteps=10
 tol=1e-08
 typeof(maxbsteps)
-
-# f = Dolo.arbitrage
-# g = Dolo.transition
-# x_lb = model.functions['controls_lb']
-# x_ub = model.functions['controls_ub']
+compute_radius=false
+verbose=true
+maxit =1000
+verbose_jac=false
 
 parms = model.calibration[:parameters]
-# need to discretize if continous MC
-dprocess = model.exogenous
 
-nodes = dprocess.values
-transitions = dprocess.transitions
-n_m = size(nodes,1)
+n_m = Dolo.n_nodes(dprocess)
 n_s = length(model.symbols[:states])
 
-# endo grid today
-s = model.grid.nodes
-# controls today
+s = Dolo.nodes(model.grid)
 N_s = size(s,1)
 n_x = size(model.calibration[:controls],1)
-N_m = Dolo.n_nodes(dprocess.grid) # number of grid points for exo_vars
+N_m = Dolo.n_nodes(dprocess) # number of grid points for exo_vars
 
-
-# x0 = repmat([(model.calibration[:controls])'],N*n_x^2,1)
-# x0 = repmat(model.calibration[:controls]',N)
-# x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
-
-init_dr=Dolo.ConstantDecisionRule(model.calibration[:controls])
-
+#  x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
 x0 = [init_dr(i, Dolo.nodes(model.grid)) for i=1:N_m]
-
-# ddr=Dolo.DecisionRule(dprocess.grid, model.grid, n_x)
-# ddr_filt = Dolo.DecisionRule(dprocess.grid, model.grid,n_x)
-
-ddr = Dolo.CachedDecisionRule(dprocess, model.grid, x0)
+ddr=Dolo.CachedDecisionRule(dprocess, model.grid, x0)
 ddr_filt = Dolo.CachedDecisionRule(dprocess, model.grid, x0)
-
-typeof(ddr.dr)<:Dolo.AbstractDecisionRule
-
-ddr== ddr_filt
 Dolo.set_values!(ddr,x0)
 
 steps = 0.5.^collect(0:maxbsteps)
 
 x=x0
-
-
-# checking the euler_residuals functions, res = 0 ##########################
-# @time dr = Dolo.time_iteration(model, verbose=true, maxit=10000, details=false)
-# euler_residuals(f,g,s,x,dr,dprocess,parms, with_jres=false,set_dr=true)
-# Doesn't seem to work, but the same thing in python ...
-
 ## memory allocation
 jres = zeros(n_m,n_m,N_s,n_x,n_x)
 S_ij = zeros(n_m,n_m,N_s,n_s)
 
-# fut_S = copy(S_ij)
 ######### Loop     for it in range(maxit):
 it=0
 it_invert=0
-tol=1e-08
-maxit=1000
-# err_0=100
-# err_2=100
-
 res_init = euler_residuals(model,s,x,ddr,dprocess,parms ,set_dr=false, jres=jres, S_ij=S_ij)
-raduis_jac=true
-if raduis_jac == true
+
+err_0 = abs(maximum(res_init))
+err_2= err_0
+lam0=0.0
+
+verbose && println("N\tf_x\t\td_x\tTime_residuals\tTime_inversion\tTime_search\tLambda_0\tN_invert\tN_search\t")
+verbose && println(repeat("-", 120))
+
+
+if compute_radius == true
   res=zeros(res_init)
   dres = zeros(N_s*N_m, n_x, n_x)
 end
-  # if there are complementerities, we modify derivatives
-err_0 = maximum(abs, res_init)
-err_2= 0.0
-lam0=0.0
+
+
+
+
+
+
+it = 1
+
+jres = zeros(n_m,n_m,N_s,n_x,n_x)
+S_ij = zeros(n_m,n_m,N_s,n_s)
+
+t1 = time();
+
+# compute derivatives and residuals:
+# res: residuals
+# dres: derivatives w.r.t. x
+# jres: derivatives w.r.t. ~x
+# fut_S: future states
+Dolo.set_values!(ddr,x)
+
+ff = SerialDifferentiableFunction(u-> euler_residuals(model, s, u,ddr,dprocess,parms;
+                                  with_jres=false,set_dr=false))
+
+res, dres = ff(x)
+
+# dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
+dres = reshape(dres, n_m, N_s, n_x, n_x)
+
+junk, jres, fut_S = euler_residuals(model, s, x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+
+
+
+
+
+
+
+N_s = size(s,1) # Number of gris points for endo_var
+n_s = size(s,2) # Number of states
+n_x = size(x[1],2) # Number of controls
+
+# P = dprocess.values
+# Q = dprocess.transitions
+
+n_ms = Dolo.n_nodes(dprocess)  # number of markov states
+n_mv = size(Dolo.node(dprocess, 1),1)  # number of markov variable
+
+res = zeros(n_ms, N_s, n_x)
+S = zeros(size(s))
+rr = zeros(N_s, n_x)
+
+if with_jres == true
+  if jres== nothing
+    jres = zeros((n_ms,n_ms,N_s,n_x,n_x))
+  end
+  if S_ij== nothing
+    S_ij = zeros((n_ms,n_ms,N_s,n_s))
+  end
+end
+
+
+i_ms=1
+m = Dolo.node(dprocess, i_ms)
+
+I_ms= 1
+M= Dolo.node(dprocess,I_ms)
+w = Dolo.iweight(dprocess, i_ms, I_ms)
+for n in 1:N_s
+ S[n,:] = Dolo.transition(model, m, s[n, :], x[i_ms][n, :], M, parms)
+end
+X = ddr(i_ms, I_ms, S)
+
+n=1
+ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],u,parms))
+# rr[n,:], rr_XM[n,:,:] =
+rr[n,:]=ff(X[n,:])
+
+ff(X[n,:])
+u = X[n,:]
+
+
+v0=Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],u,parms)
+n_x = size(x,1)
+size(v0,1)
+dv = zeros(n_v,n_x)
+dv[1]
+
+
+i=1
+xi = deepcopy(u)
+xi[:,i] += 1e-08
+vi = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],xi,parms)
+dd=(vi+(-1*v0))./1e-08
+dv[:,i] = dd
+
+epsilon = 1e-08
+dv = zeros(2,n_x)
+xi = deepcopy(u)
+xi[1,:]
+i=1
+xi[i,:] += epsilon
+vi = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],xi,parms)
+dd=(vi+(-1*v0))./epsilon
+dv[:,i] = dd
+
+
+
+
+for i in 1:1
+   xi[i,:] += epsilon
+   vi = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],xi,parms)
+   dd=(vi+(-1*v0))./epsilon
+   dv[:,i] = dd
+end
+
+(vi+(-1*v0))./epsilon
+
+v0
+vi
+
+
+dv[:,1]
+typeof(X[n,:])<:Array{Float64,1}
+
+
+ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s,x[i_ms],M,S,u,parms))
+ff(X)
+X
+S
+S
+m
+Dolo.arbitrage(model, m,s,x[i_ms],M,S,X,parms)
+dsd=1
+
+
+
 
 while it <= maxit && err_0>tol
    it += 1
-  #  println(it)
+
    jres = zeros(n_m,n_m,N_s,n_x,n_x)
    S_ij = zeros(n_m,n_m,N_s,n_s)
+
+   t1 = time();
 
    # compute derivatives and residuals:
    # res: residuals
    # dres: derivatives w.r.t. x
    # jres: derivatives w.r.t. ~x
-   # dres: derivatives w.r.t. x
-   # jres: derivatives w.r.t. ~x
    # fut_S: future states
    Dolo.set_values!(ddr,x)
 
-   ff = SerialDifferentiableFunction(u-> euler_residuals(model,s,u,ddr,dprocess,parms;
+   ff = SerialDifferentiableFunction(u-> euler_residuals(model, s, u,ddr,dprocess,parms;
                                      with_jres=false,set_dr=false))
 
    res, dres = ff(x)
 
    # dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
-   dres = reshape(dres, 2,50,2,2)
-
-  #  junk, jres, fut_S = euler_residuals(model,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
-   junk, jres, S_ij = euler_residuals(model,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
-  #  S_ij=fut_S
+   dres = reshape(dres, n_m, N_s, n_x, n_x)
+   junk, jres, fut_S = euler_residuals(model, s, x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
      # if there are complementerities, we modify derivatives
    err_0 = abs(maximum(res))
 
@@ -146,9 +248,6 @@ while it <= maxit && err_0>tol
    jres[1,1,1:5,:,:]
    M=jres
    # M[1,1,1:5,:,:]
-
-
-
 
    X=zeros(n_m,N_s,n_x,n_x)
    for i_m in 1:n_m
@@ -163,9 +262,10 @@ while it <= maxit && err_0>tol
 
    ####################
    # Invert Jacobians
+   t2 = time();
+   tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S, ddr_filt; verbose=verbose_jac, maxit = smaxit)
 
-  #  tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S,ddr_filt; verbose=true)
-   tot, it_invert, lam0 = invert_jac(res,dres,jres,S_ij,ddr_filt; verbose=true)
+   t3 = time();
 
    i_bckstps=0
    new_err=err_0
@@ -173,20 +273,237 @@ while it <= maxit && err_0>tol
    while new_err>=err_0 && i_bckstps<length(steps)
      i_bckstps +=1
      new_x = x-destack0(tot, n_m)*steps[i_bckstps]
-     new_res = euler_residuals(model,s,new_x,ddr,dprocess,parms,set_dr=true)
+     new_res = euler_residuals(model, s, new_x,ddr,dprocess,parms,set_dr=true)
      new_err = maximum(abs, new_res)
    end
-
    err_2 = maximum(abs,tot)
 
-   # print...
+   t4 = time();
+
    x = new_x
-   println(it)
+   verbose && @printf "%-6i% -10e% -17e% -15.4f% -15.4f% -15.5f% -17.3f%-17i%-5i\n" it  err_0  err_2  t2-t1 t3-t2 t4-t3 lam0 it_invert i_bckstps
+
 end
+Dolo.set_values!(ddr,x)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S, ddr_filt; verbose=verbose_jac)
+tot
+t3 = time();
+
+i_bckstps=0
+new_err=err_0
+new_x = x
+
+i_bckstps +=1
+new_x = x-destack0(tot, n_m)*steps[i_bckstps]
+new_res = euler_residuals(model,s,new_x,ddr,dprocess,parms,set_dr=true)
+new_err = maximum(abs, new_res)
+
+
+
+
+while new_err>=err_0 && i_bckstps<length(steps)
+  i_bckstps +=1
+  new_x = x-destack0(tot, n_m)*steps[i_bckstps]
+  new_res = euler_residuals(model,s,new_x,ddr,dprocess,parms,set_dr=true)
+  new_err = maximum(abs, new_res)
+end
+err_2 = maximum(abs,tot)
+
+t4 = time();
+
+x = new_x
+
+
+
+println("N\tf_x\t\td_x\tTime_residuals\tTime_inversion\tTime_search\tLambda_0\tN_invert\tN_search\t")
+
+println(repeat("-", 120))
+# println(it, "\t", err_0, "\t", err_2, "\t", t2-t1, "\t", t3-t2, "\t", t4-t3, "\t", lam0, "\t", it_invert, "\t", i_bckstps)
+
+
+
+# @printf "%-6i% -10e% -10e% -10e% -10e% -10e% -10e%-10e%-5i\n" it  err_0  err_2  round(t2-t1,4) round(t3-t2,4) round(t4-t3,4) lam0 it_invert i_bckstps
+@printf "%-6i% -10e% -15e% -15.4f% -15.4f% -15.5f% -17i%-17i%-5i\n" it  err_0  err_2  t2-t1 t3-t2 t4-t3 lam0 it_invert i_bckstps
+
+
+round(t2-t1,2)
+
+int width1, width2;
+int values[6][2];
+printf("|%s%n|%s%n|\n", header1, &width1, header2, &width2);
+
+for(i=0; i<6; i++)
+   printf("|%*d|%*d|\n", width1, values[i][0], width2, values[i][1]);
+
+Info=ITIDetails(err_0, err_2,  t2-t1, t3-t2, t4-t3, lam0, it_invert, i_bckstps)
+
+
+Info.f_x
+
+println(Info)
+
+
+
+
+
+@printf "%.2f"  err_0
+
+println([err_0])
+println(err_0)
+@printf string(err_0)
+
+string(err_0)
+print_shortest(err_0)
+showall(err_0);println()
+fname = "simple.dat"
+# using do means the file is closed automatically
+# in the same way "with" does in python
+open(fname,"r") do f
+    for line in eachline(f)
+        print(line)
+    end
+end
+
+
+ptable = DataFrame( @data([1,   2,    6,    8,    26    ]))
+println(ptable)
+function Iterationslogger(x::ITIDetails)
+
+
+
+
+
+
+
+
+95000/0.05
+
+println(repeat("-", 115))
+map(Info -> println(
+    Info.f_x,                   "\t",
+    Info.d_x,   "\t",
+    Info.Time_residuals, "\t",
+    Info.Time_inversion,    "\t",
+    Info.Time_search,   "\t",
+    Info.Lambda_0,    "\t",
+    Info.N_invert,     "\t",
+    Info.N_search),
+    Info);
+
+
+
+
+ITIDetails(err_0, err_2, t2-t1, t3-t2, t4-t3, lam0, it_invert, i_bckstps)
+
+converged(r::ITI_headers) = r.header
+function Base.print(io::IO, r::ITIDetails)
+  @printf io " * Number of iterations: %s\n" string(r.f_x)
+  @printf io " * Decision Rule type: %s\n" string(r.d_x)
+  @printf io " * Convergence: %s\n" string(r.Time_residuals)
+  @printf io " * Convergence: %s\n" string(r.Time_inversion)
+  @printf io " * Convergence: %s\n" string(r.Time_search)
+  @printf io " * Convergence: %s\n" string(r.Lambda_0)
+  @printf io " * Convergence: %s\n" string(r.N_invert)
+  @printf io " * Convergence: %s\n" string(r.N_search)
+end
+
+ITIDetails(err_0, err_2, t2-t1, t3-t2, t4-t3, lam0, it_invert, i_bckstps)
+
+
+
+
+
+println(ITIDetails)
+
+DataFrame(Info)
+
+
+
+using DataFrames
+DataFrames.DataFrame(Info)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function Base.show(io::IO, r::ITI_headers)
+    @printf io "Results of Improved Time Iteration Algorithm\n"
+    @printf io " * Number of iterations: %s\n" string(r.f_x)
+    # @printf io " * Complementarities: %s\n" string(r.complementarities)
+    @printf io " * Decision Rule type: %s\n" string(r.d_x)
+    @printf io " * Convergence: %s\n" string(r.Time_residuals)
+    @printf io " * Contractivity: %s\n" string(r.Time_residuals)
+    @printf io "   * |x - x'| < %.1e: %s\n" string(r.Time_residuals)
+    @printf io "   * |x - x'| < %.1e: %s\n" string(r.Time_inversion)
+    @printf io "   * |x - x'| < %.1e: %s\n" string(r.Time_search)
+    @printf io "   * |x - x'| < %.1e: %s\n" string(r.Lambda_0)
+    @printf io "   * |x - x'| < %.1e: %s\n" string(r.N_invert)
+    @printf io "   * |x - x'| < %.1e: %s\n" string(r.N_search)
+end
+
+
+
+type ITIDetails
+    f_x::Float64
+    d_x::Float64
+    Time_residuals::Float64
+    Time_inversion::Float64
+    Time_search::Float64
+    Lambda_0::Float64
+    N_invert::Float64
+    N_search::Float64
+end
+
+
+println("N\tf_x\td_x\tTime_residuals\tTime_inversion\tTime_search\tLambda_0\tN_invert\tN_search\t")
+println(repeat("-", 115))
+map((xcol,ycol) -> println(
+    xcol,                   "\t",
+    mean(anscombe[xcol]),   "\t",
+    median(anscombe[xcol]), "\t",
+    std(anscombe[xcol]),    "\t",
+    mean(anscombe[ycol]),   "\t",
+    std(anscombe[ycol]),    "\t",
+    cor(anscombe[xcol], anscombe[ycol]))
+
+
 x
 Dolo.set_values!(ddr,x)
 
 ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, tol, lam0, it_invert, 5.0)
+ImprovedTimeIterationResult(ddr.dr, it)
 
 
 ###### radius_jac

@@ -9,17 +9,20 @@ function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, 
       Dolo.set_values!(dr,x)
     end
 
+    # s = model.grid.nodes
     N_s = size(s,1) # Number of gris points for endo_var
     n_s = size(s,2) # Number of states
-    n_x = size(x,1) # Number of controls
+    n_x = size(x[1],2) # Number of controls
 
-    P = dprocess.values
-    Q = dprocess.transitions
+    # P = dprocess.values
+    # Q = dprocess.transitions
 
-    n_ms = size(P,1)  # number of markov states
-    n_mv = size(P,2)  # number of markov variable
+    n_ms = Dolo.n_nodes(dprocess)  # number of markov states
+    n_mv = size(Dolo.node(dprocess, 1),1)  # number of markov variable
 
     res = zeros(n_ms, N_s, n_x)
+    S = zeros(size(s))
+    rr = zeros(N_s, n_x)
 
     if with_jres == true
       if jres== nothing
@@ -31,31 +34,34 @@ function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, 
     end
 
 
-    for i_ms in 1:n_ms
-       m_prep = [repmat(P[i_ms,:]',1) for i in 1:N_s]
-       m=(hcat([e' for e in m_prep]...))'
-       xm = x[i_ms]
+    for i_ms in 1:size(x, 1)
+       m = Dolo.node(dprocess, i_ms)
 
-       for I_ms in 1:n_ms
-          M_prep = [repmat(P[I_ms,:]', 1) for i in 1:N_s]
-          M=(hcat([e' for e in M_prep]...))'
-          prob = Q[i_ms, I_ms]
+        for I_ms in 1:Dolo.n_inodes(dprocess, i_ms)
+           M= Dolo.node(dprocess,I_ms)
+           w = Dolo.iweight(dprocess, i_ms, I_ms)
+           for n in 1:N_s
+             S[n,:] = Dolo.transition(model, m, s[n, :], x[i_ms][n, :], M, parms)
+           end
+           X = dr(i_ms, I_ms, S)
 
-          S = Dolo.transition(model, m, s, xm, M, parms)
-          XM = dr(I_ms, S)
-
-          if with_jres==true
-              ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s,xm,M,S,u,parms))
-              rr, rr_XM = ff(XM)
-              jres[i_ms,I_ms,:,:,:] = prob*rr_XM
-              S_ij[i_ms,I_ms,:,:] = S
-          else
-              rr = Dolo.arbitrage(model, m,s,xm,M,S,XM,parms)
-          end
-          res[i_ms,:,:] += prob*rr
+           if with_jres==true
+             for n in 1:N_s
+               ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],u,parms))
+               rr[n,:], rr_XM[n,:,:] = ff(X[n,:])
+             end
+               jres[i_ms,I_ms,:,:,:] = prob*rr_XM
+               S_ij[i_ms,I_ms,:,:] = S
+           else
+             for n in 1:N_s
+                rr[n,:] = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],X[n, :],parms)
+             end
+           end
+           res[i_ms,:,:] += w*rr
         end
 
     end
+
 
     res_AA = AxisArray(res, Axis{:n_m}(1:n_ms), Axis{:N_s}(1:N_s), Axis{:n_x}(1:n_x))
     if with_jres==true
@@ -67,7 +73,7 @@ function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, 
 end
 #############################################################################
 # I am still not sure we need it
-function euler_residuals(model, s::AbstractArray, x::Array{Float64,2}, dr,
+function euler_residuals(model, x::Array{Float64,2}, dr,
                          dprocess, parms::AbstractArray; with_jres=false, set_dr=true,
                          jres=nothing, S_ij=nothing)
    N_m = Dolo.n_nodes(dprocess.grid)
@@ -101,8 +107,8 @@ function SerialDifferentiableFunction(f, epsilon=1e-8)
       # dd=permutedims(dd, [2,1,3])
       dv[:,:, i] = reshape(dd,N_s*n_m,n_x) # (1dim) corresponds to equations, in raws you first stuck derivatives wrt 1rst exo state, 2nd, etc
       end
-      dv_AA = AxisArray(dv, Axis{:N}(1:n_m*N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
-      return [v0, dv_AA]
+      # dv_AA = AxisArray(dv, Axis{:N}(1:n_m*N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
+      return [v0, dv]
     end
 
 
@@ -124,8 +130,29 @@ function SerialDifferentiableFunction(f, epsilon=1e-8)
          dd=(vi+(-1*v0))./epsilon
          dv[:,:, i] = dd
       end
-      dv_AA = AxisArray(dv, Axis{:N}(1:N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
-      return [v0, dv_AA]
+      # dv_AA = AxisArray(dv, Axis{:N}(1:N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
+      return [v0, dv]
+
+    end
+
+    function df(x::Array{Float64,1})
+
+      v0 = f(x)
+
+      n_v = size(v0,1)
+      # assert(size(x,1) == N_s)
+      n_x = size(x,2)
+
+      dv = zeros(n_v,n_x)
+      for i in 1:n_x
+         xi = deepcopy(x)
+         xi[:,i] += epsilon
+         vi = f(xi)
+         dd=(vi+(-1*v0))./epsilon
+         dv[:,I] = dd
+      end
+      # dv_AA = AxisArray(dv, Axis{:N}(1:N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
+      return [v0, dv]
 
     end
     df
@@ -314,6 +341,7 @@ function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5
     # else
     #   dumdr = filt
     # end
+
     lam = -1.0
     lam_max = -1.0
     err_0 = maximum(abs, ddx)
@@ -323,14 +351,16 @@ function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5
     print("Starting inversion")
     end
     err=err_0
+
+
     verbose && println(repeat("-", 35))
     verbose && @printf "%-6s%-12s%-5s\n" "err" "gain" "gain_max"
     verbose && println(repeat("-", 35))
+    precomputed=false
 
     it = 0
     while it<maxit && err>tol
       it +=1
-      precomputed=false
 
       ddx = d_filt_dx(ddx,jres,fut_S,dumdr; precomputed=precomputed)
       # might also work
@@ -341,8 +371,16 @@ function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5
       lam_max = max(lam_max, lam)
       tot += ddx
       err_0 = err
-      verbose && @printf "%-6i%-12.2e%-5i\n" err lam lam_max
+      verbose && @printf "%-6f%-12.2e%-5.2e\n" err lam lam_max
     end
+    if err<tol
+      ddx = d_filt_dx(ddx,jres,fut_S,dumdr; precomputed=precomputed)
+      err = maximum(abs, ddx)
+
+      lam = err/err_0
+      lam_max = max(lam_max, lam)
+    end
+
     tot += ddx*lam/(1-lam)
     return tot, it, lam
 end
@@ -360,7 +398,7 @@ type ImprovedTimeIterationResult
     f_x::Float64
     d_x::Float64
     x_converged::Bool
-    # Time_inversion::
+    complementarities::Bool
     # Time_search::
     tol::Float64
     Lambda::Float64
@@ -368,17 +406,40 @@ type ImprovedTimeIterationResult
     N_search::Float64
 end
 
+# type ITIDetails
+#     f_x::Float64
+#     d_x::Float64
+#     Time_residuals::Float64
+#     Time_inversion::Float64
+#     Time_search::Float64
+#     Lambda_0::Float64
+#     N_invert::Float64
+#     N_search::Float64
+# end
+#
+# type ITI_headers
+#     f_x::Float64
+#     d_x::Float64
+#     Time_residuals::Float64
+#     Time_inversion::Float64
+#     Time_search::Float64
+#     Lambda_0::Float64
+#     N_invert::Float64
+#     N_search::Float64
+# end
+
 converged(r::ImprovedTimeIterationResult) = r.x_converged
 
 function Base.show(io::IO, r::ImprovedTimeIterationResult)
     @printf io "Results of Improved Time Iteration Algorithm\n"
     @printf io " * Number of iterations: %s\n" string(r.N)
-    # @printf io " * Complementarities: %s\n" string(r.complementarities)
+    @printf io " * Complementarities: %s\n" string(r.complementarities)
     @printf io " * Decision Rule type: %s\n" string(typeof(r.dr))
     @printf io " * Convergence: %s\n" converged(r)
     @printf io " * Contractivity: %s\n" string(r.Lambda)
     @printf io "   * |x - x'| < %.1e: %s\n" r.tol r.x_converged
 end
+
 
 ###### radius_jac
 function radius_jac(res::AbstractArray,dres::AbstractArray,jres::AbstractArray,

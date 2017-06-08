@@ -20,31 +20,23 @@ If the stochastic process for the model is not explicitly provided, the process 
 """
 
 function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.AbstractDiscretizedProcess,
-                                 init_dr::Dolo.AbstractDecisionRule;
-                                 maxbsteps::Int=10, verbose::Bool=false,
+                                 init_dr::Dolo.AbstractDecisionRule, grid;
+                                 maxbsteps::Int=10, verbose::Bool=true, verbose_jac::Bool=false,
                                  tol::Float64=1e-8, smaxit::Int=500, maxit::Int=1000,
                                  complementarities::Bool=false, compute_radius::Bool=false, details::Bool=true)
 
-  #  f = Dolo.arbitrage
-  #  g = Dolo.transition
    # x_lb = model.functions['controls_lb']
    # x_ub = model.functions['controls_ub']
 
    parms = model.calibration[:parameters]
-   # need to discretize if continous MC
-   dprocess = model.exogenous
 
-   nodes = dprocess.values
-   transitions = dprocess.transitions
-   n_m = size(nodes,1)
-   n_s = length(model.symbols[:states])
+   n_m = Dolo.n_nodes(dprocess) # number of exo states
+   n_s = length(model.symbols[:states]) # number of endo states
 
-   # endo grid today
-   s = model.grid.nodes
-   # controls today
+   s = Dolo.nodes(model.grid)
    N_s = size(s,1)
    n_x = size(model.calibration[:controls],1)
-   N_m = Dolo.n_nodes(dprocess.grid) # number of grid points for exo_vars
+   N_m = Dolo.n_nodes(dprocess) # number of grid points for exo_vars
 
   #  x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
    x0 = [init_dr(i, Dolo.nodes(model.grid)) for i=1:N_m]
@@ -67,6 +59,10 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
    err_2= err_0
    lam0=0.0
 
+   verbose && println("N\tf_x\t\td_x\tTime_residuals\tTime_inversion\tTime_search\tLambda_0\tN_invert\tN_search\t")
+   verbose && println(repeat("-", 120))
+
+
    if compute_radius == true
      res=zeros(res_init)
      dres = zeros(N_s*N_m, n_x, n_x)
@@ -78,6 +74,8 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       jres = zeros(n_m,n_m,N_s,n_x,n_x)
       S_ij = zeros(n_m,n_m,N_s,n_s)
 
+      t1 = time();
+
       # compute derivatives and residuals:
       # res: residuals
       # dres: derivatives w.r.t. x
@@ -85,14 +83,14 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       # fut_S: future states
       Dolo.set_values!(ddr,x)
 
-      ff = SerialDifferentiableFunction(u-> euler_residuals(model,s,u,ddr,dprocess,parms;
+      ff = SerialDifferentiableFunction(u-> euler_residuals(model, s, u,ddr,dprocess,parms;
                                         with_jres=false,set_dr=false))
 
       res, dres = ff(x)
 
       # dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
-      dres = reshape(dres, 2,50,2,2)
-      junk, jres, fut_S = euler_residuals(model,s,x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+      dres = reshape(dres, n_m, N_s, n_x, n_x)
+      junk, jres, fut_S = euler_residuals(model, s, x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
         # if there are complementerities, we modify derivatives
       err_0 = abs(maximum(res))
 
@@ -114,8 +112,10 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
 
       ####################
       # Invert Jacobians
+      t2 = time();
+      tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S, ddr_filt; verbose=verbose_jac, maxit = smaxit)
 
-      tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S, ddr_filt; verbose=verbose)
+      t3 = time();
 
       i_bckstps=0
       new_err=err_0
@@ -123,30 +123,46 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       while new_err>=err_0 && i_bckstps<length(steps)
         i_bckstps +=1
         new_x = x-destack0(tot, n_m)*steps[i_bckstps]
-        new_res = euler_residuals(model,s,new_x,ddr,dprocess,parms,set_dr=true)
+        new_res = euler_residuals(model, s, new_x,ddr,dprocess,parms,set_dr=true)
         new_err = maximum(abs, new_res)
       end
       err_2 = maximum(abs,tot)
+
+      t4 = time();
+
       x = new_x
+      verbose && @printf "%-6i% -10e% -17e% -15.4f% -15.4f% -15.5f% -17.3f%-17i%-5i\n" it  err_0  err_2  t2-t1 t3-t2 t4-t3 lam0 it_invert i_bckstps
+
    end
    Dolo.set_values!(ddr,x)
-   lam, lam_max, lambdas = radius_jac(res,dres,jres,S_ij,ddr_filt)
+
+   if compute_radius == true
+     lam, lam_max, lambdas = radius_jac(res,dres,jres,S_ij,ddr_filt)
+   end
 
    if !details
      return ddr.dr
    else
      converged = err_0<tol
-     return ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, converged, tol, lam0, it_invert, 5.0), (lam, lam_max, lambdas)
+     if !compute_radius
+       return ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, converged, complementarities, tol, lam0, it_invert, 5.0)
+     else
+       return ImprovedTimeIterationResult(ddr.dr, it, err_0, err_2, converged, tol, lam0, it_invert, 5.0), (lam, lam_max, lambdas)
+     end
    end
 
 end
 
-function improved_time_iteration(model, dprocess::Dolo.AbstractDiscretizedProcess, maxbsteps::Int=10, verbose::Bool=false,
-                                 tol::Float64=1e-8, smaxit::Int=500, maxit::Int=1000,
-                                 complementarities::Bool=true, compute_radius::Bool=false)
+function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.AbstractDiscretizedProcess,
+                                 init_dr::Dolo.AbstractDecisionRule;grid=Dict(), kwargs...)
+    grid = get_grid(model, options=grid)
+    return time_iteration(model, dprocess, init_dr, grid;  kwargs...)
+end
+
+function improved_time_iteration(model, dprocess::Dolo.AbstractDiscretizedProcess; grid=Dict(), kwargs...)
+
     init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
-    return improved_time_iteration(model, dprocess, init_dr, maxbsteps, verbose,tol,
-                                    smaxit, maxit,complementarities, compute_radius)
+    return improved_time_iteration(model, dprocess, init_dr; grid=grid, kwargs...)
 end
 
 # function improved_time_iteration(model, maxbsteps::Int=10, verbose::Bool=false,
@@ -158,8 +174,8 @@ end
 #                                    smaxit, maxit,complementarities, compute_radius)
 # end
 
-function improved_time_iteration(model; kwargs...)
+function improved_time_iteration(model; grid=Dict(), kwargs...)
     dprocess = Dolo.discretize( model.exogenous )
     init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
-    return improved_time_iteration(model, dprocess, init_dr; kwargs...)
+    return improved_time_iteration(model, dprocess, init_dr; grid=grid, kwargs...)
 end

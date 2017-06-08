@@ -4,7 +4,7 @@ model_type: dtcc
 
 symbols:
 
-   exogenous: [z, z2]
+   exogenous: [z]
    states: [k]
    controls: [n, i]
    expectations: [m]
@@ -78,7 +78,7 @@ domain:
     k: [k*0.5, k*1.5]
 
 exogenous: !MarkovChain
-    values: [[-0.01, 0.1],[0.01, 0.5]]
+    values: [[-0.01],[0.01]]
     transitions: [[0.4, 0.6], [0.6, 0.4]]
 
 options:
