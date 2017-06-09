@@ -17,47 +17,43 @@ function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, 
     # P = dprocess.values
     # Q = dprocess.transitions
 
-    n_ms = Dolo.n_nodes(dprocess)  # number of markov states
-    n_mv = size(Dolo.node(dprocess, 1),1)  # number of markov variable
+    n_ms = Dolo.n_nodes(dprocess)  # number of exo states today
+    n_mst = Dolo.n_inodes(dprocess,1)  # number of exo states tomorrow
+    n_mv = size(Dolo.node(dprocess, 1),1)  # number of exo variable
 
     res = zeros(n_ms, N_s, n_x)
-    S = zeros(size(s))
-    rr = zeros(N_s, n_x)
 
     if with_jres == true
       if jres== nothing
-        jres = zeros((n_ms,n_ms,N_s,n_x,n_x))
+        jres = zeros((n_ms,n_mst,N_s,n_x,n_x))
       end
       if S_ij== nothing
-        S_ij = zeros((n_ms,n_ms,N_s,n_s))
+        S_ij = zeros((n_ms,n_mst,N_s,n_s))
       end
     end
 
 
-    for i_ms in 1:size(x, 1)
-       m = Dolo.node(dprocess, i_ms)
+    for i_ms in 1:n_ms
+       m_prep = [repmat(Dolo.node(dprocess,i_ms),1) for i in 1:N_s]
+       m=(hcat([e' for e in m_prep]...))'
 
-        for I_ms in 1:Dolo.n_inodes(dprocess, i_ms)
-           M= Dolo.node(dprocess,I_ms)
-           w = Dolo.iweight(dprocess, i_ms, I_ms)
-           for n in 1:N_s
-             S[n,:] = Dolo.transition(model, m, s[n, :], x[i_ms][n, :], M, parms)
-           end
-           X = dr(i_ms, I_ms, S)
+       for I_ms in 1:n_mst
+          M_prep = [repmat(Dolo.inode(dprocess, i_ms, I_ms), 1) for i in 1:N_s]
+          M=(hcat([e' for e in M_prep]...))'
+          w = Dolo.iweight(dprocess, i_ms, I_ms)
+          S = Dolo.transition(model, m, s, x[i_ms], M, parms)
 
-           if with_jres==true
-             for n in 1:N_s
-               ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],u,parms))
-               rr[n,:], rr_XM[n,:,:] = ff(X[n,:])
-             end
-               jres[i_ms,I_ms,:,:,:] = prob*rr_XM
-               S_ij[i_ms,I_ms,:,:] = S
-           else
-             for n in 1:N_s
-                rr[n,:] = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],X[n, :],parms)
-             end
-           end
-           res[i_ms,:,:] += w*rr
+          X = dr(i_ms, I_ms, S)
+
+          if with_jres==true
+              ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s,x[i_ms],M,S,u,parms))
+              rr, rr_XM = ff(X)
+              jres[i_ms,I_ms,:,:,:] = w*rr_XM
+              S_ij[i_ms,I_ms,:,:] = S
+          else
+              rr = Dolo.arbitrage(model, m,s,x[i_ms],M,S,X,parms)
+          end
+          res[i_ms,:,:] += w*rr
         end
 
     end
@@ -95,17 +91,17 @@ function SerialDifferentiableFunction(f, epsilon=1e-8)
       N_s = size(v0,2)
       n_v = size(v0,3)
       assert(size(x[1],1) == N_s)
-      n_x = size(x,1)
+      n_x = size(x[1],2)
 
       dv = zeros(n_m*N_s,  n_v, n_x)
       for i in 1:n_x
-      xi = deepcopy(cat(1,x...))
-      xi[:,i] += epsilon
-      # You could also use f(xi)
-      vi = f(Dolo.destack0(xi,n_m))
-      dd=(vi+(-1*v0))./epsilon
-      # dd=permutedims(dd, [2,1,3])
-      dv[:,:, i] = reshape(dd,N_s*n_m,n_x) # (1dim) corresponds to equations, in raws you first stuck derivatives wrt 1rst exo state, 2nd, etc
+        xi = deepcopy(cat(1,x...))
+        xi[:,i] += epsilon
+        # You could also use f(xi)
+        vi = f(Dolo.destack0(xi,n_m))
+        dd=(vi+(-1*v0))./epsilon
+        # dd=permutedims(dd, [2,1,3])
+        dv[:,:, i] = reshape(dd,N_s*n_m,n_x) # (1dim) corresponds to equations, in raws you first stuck derivatives wrt 1rst exo state, 2nd, etc
       end
       # dv_AA = AxisArray(dv, Axis{:N}(1:n_m*N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
       return [v0, dv]
@@ -141,15 +137,15 @@ function SerialDifferentiableFunction(f, epsilon=1e-8)
 
       n_v = size(v0,1)
       # assert(size(x,1) == N_s)
-      n_x = size(x,2)
+      n_x = size(x,1)
 
       dv = zeros(n_v,n_x)
       for i in 1:n_x
-         xi = deepcopy(x)
-         xi[:,i] += epsilon
-         vi = f(xi)
-         dd=(vi+(-1*v0))./epsilon
-         dv[:,I] = dd
+        xi = deepcopy(x)
+        xi[i,:]+= epsilon
+        vi = f(xi)
+        dd=(vi+(-1*v0))./epsilon
+        dv[:,i] = dd
       end
       # dv_AA = AxisArray(dv, Axis{:N}(1:N_s), Axis{:n_v}(1:n_v), Axis{:n_x}(1:n_x))
       return [v0, dv]
@@ -305,11 +301,12 @@ end
 
 function d_filt_dx(res::Array{Float64,3},jres::Array{Float64,5},S_ij::Array{Float64,4},
                    dumdr; precomputed::Bool=false)
-    n_m=size(res,1)
+    n_m=size(jres,1)
+    n_mt=size(jres,2)
     Dolo.set_values!(dumdr,destack0(res, n_m))
     for i in 1:n_m
         res[i,:,:] = 0
-        for j in 1:n_m
+        for j in 1:n_mt
             A = jres[i,j,:,:,:]
             if precomputed== false
                 B = dumdr(j,S_ij[i,j,:,:])

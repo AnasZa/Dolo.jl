@@ -45,6 +45,7 @@ verbose_jac=false
 parms = model.calibration[:parameters]
 
 n_m = Dolo.n_nodes(dprocess)
+n_mt = Dolo.n_inodes(dprocess,1)
 n_s = length(model.symbols[:states])
 
 s = Dolo.nodes(model.grid)
@@ -53,6 +54,8 @@ n_x = size(model.calibration[:controls],1)
 N_m = Dolo.n_nodes(dprocess) # number of grid points for exo_vars
 
 #  x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
+dprocess = Dolo.discretize( model.exogenous )
+init_dr = Dolo.ConstantDecisionRule(model.calibration[:controls])
 x0 = [init_dr(i, Dolo.nodes(model.grid)) for i=1:N_m]
 ddr=Dolo.CachedDecisionRule(dprocess, model.grid, x0)
 ddr_filt = Dolo.CachedDecisionRule(dprocess, model.grid, x0)
@@ -85,13 +88,10 @@ end
 
 
 
+it += 1
 
-
-
-it = 1
-
-jres = zeros(n_m,n_m,N_s,n_x,n_x)
-S_ij = zeros(n_m,n_m,N_s,n_s)
+jres = zeros(n_m,n_mt,N_s,n_x,n_x)
+S_ij = zeros(n_m,n_mt,N_s,n_s)
 
 t1 = time();
 
@@ -109,111 +109,64 @@ res, dres = ff(x)
 
 # dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
 dres = reshape(dres, n_m, N_s, n_x, n_x)
-
 junk, jres, fut_S = euler_residuals(model, s, x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
+  # if there are complementerities, we modify derivatives
+err_0 = abs(maximum(res))
 
+jres *= -1.0
+jres[1,1,1:5,:,:]
+M=jres
+# M[1,1,1:5,:,:]
 
-
-
-
-
-
-N_s = size(s,1) # Number of gris points for endo_var
-n_s = size(s,2) # Number of states
-n_x = size(x[1],2) # Number of controls
-
-# P = dprocess.values
-# Q = dprocess.transitions
-
-n_ms = Dolo.n_nodes(dprocess)  # number of markov states
-n_mv = size(Dolo.node(dprocess, 1),1)  # number of markov variable
-
-res = zeros(n_ms, N_s, n_x)
-S = zeros(size(s))
-rr = zeros(N_s, n_x)
-
-if with_jres == true
-  if jres== nothing
-    jres = zeros((n_ms,n_ms,N_s,n_x,n_x))
-  end
-  if S_ij== nothing
-    S_ij = zeros((n_ms,n_ms,N_s,n_s))
-  end
+X=zeros(n_m,N_s,n_x,n_x)
+for i_m in 1:n_m
+    for j_m in 1:n_m
+        # M = jres[i_m,j_m,:,:,:]
+        X = deepcopy(dres[i_m,:,:,:])
+        for n in 1:N_s
+           X[n,:,:], M[i_m,j_m,n,:,:] = invert(collect(X[n,:,:]), M[i_m,j_m,n,:,:])
+        end
+    end
 end
 
+####################
+# Invert Jacobians
+t2 = time();
+tot, it_invert, lam0 = invert_jac(res,dres,jres,fut_S, ddr_filt; verbose=verbose_jac, maxit = 10)
 
-i_ms=1
-m = Dolo.node(dprocess, i_ms)
+t3 = time();
 
-I_ms= 1
-M= Dolo.node(dprocess,I_ms)
-w = Dolo.iweight(dprocess, i_ms, I_ms)
-for n in 1:N_s
- S[n,:] = Dolo.transition(model, m, s[n, :], x[i_ms][n, :], M, parms)
+i_bckstps=0
+new_err=err_0
+new_x = x
+while new_err>=err_0 && i_bckstps<length(steps)
+  i_bckstps +=1
+  new_x = x-destack0(tot, n_m)*steps[i_bckstps]
+  new_res = euler_residuals(model, s, new_x,ddr,dprocess,parms,set_dr=true)
+  new_err = maximum(abs, new_res)
 end
-X = ddr(i_ms, I_ms, S)
+err_2 = maximum(abs,tot)
 
-n=1
-ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],u,parms))
-# rr[n,:], rr_XM[n,:,:] =
-rr[n,:]=ff(X[n,:])
+t4 = time();
 
-ff(X[n,:])
-u = X[n,:]
-
-
-v0=Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],u,parms)
-n_x = size(x,1)
-size(v0,1)
-dv = zeros(n_v,n_x)
-dv[1]
-
-
-i=1
-xi = deepcopy(u)
-xi[:,i] += 1e-08
-vi = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],xi,parms)
-dd=(vi+(-1*v0))./1e-08
-dv[:,i] = dd
-
-epsilon = 1e-08
-dv = zeros(2,n_x)
-xi = deepcopy(u)
-xi[1,:]
-i=1
-xi[i,:] += epsilon
-vi = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],xi,parms)
-dd=(vi+(-1*v0))./epsilon
-dv[:,i] = dd
+x = new_x
+verbose && @printf "%-6i% -10e% -17e% -15.4f% -15.4f% -15.5f% -17.3f%-17i%-5i\n" it  err_0  err_2  t2-t1 t3-t2 t4-t3 lam0 it_invert i_bckstps
 
 
 
 
-for i in 1:1
-   xi[i,:] += epsilon
-   vi = Dolo.arbitrage(model, m,s[n, :],x[i_ms][n, :],M,S[n, :],xi,parms)
-   dd=(vi+(-1*v0))./epsilon
-   dv[:,i] = dd
-end
-
-(vi+(-1*v0))./epsilon
-
-v0
-vi
 
 
-dv[:,1]
-typeof(X[n,:])<:Array{Float64,1}
 
 
-ff = SerialDifferentiableFunction(u->Dolo.arbitrage(model, m,s,x[i_ms],M,S,u,parms))
-ff(X)
-X
-S
-S
-m
-Dolo.arbitrage(model, m,s,x[i_ms],M,S,X,parms)
-dsd=1
+
+
+
+
+
+
+
+
 
 
 

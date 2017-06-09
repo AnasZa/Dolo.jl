@@ -30,26 +30,27 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
 
    parms = model.calibration[:parameters]
 
-   n_m = Dolo.n_nodes(dprocess) # number of exo states
+   n_m = Dolo.n_nodes(dprocess) # number of exo states today
+   n_mt = Dolo.n_inodes(dprocess,1)  # number of exo states tomorrow
    n_s = length(model.symbols[:states]) # number of endo states
 
-   s = Dolo.nodes(model.grid)
+   s = Dolo.nodes(grid)
    N_s = size(s,1)
    n_x = size(model.calibration[:controls],1)
    N_m = Dolo.n_nodes(dprocess) # number of grid points for exo_vars
 
   #  x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
-   x0 = [init_dr(i, Dolo.nodes(model.grid)) for i=1:N_m]
-   ddr=Dolo.CachedDecisionRule(dprocess, model.grid, x0)
-   ddr_filt = Dolo.CachedDecisionRule(dprocess, model.grid, x0)
+   x0 = [init_dr(i, s) for i=1:N_m]
+   ddr=Dolo.CachedDecisionRule(dprocess, grid, x0)
+   ddr_filt = Dolo.CachedDecisionRule(dprocess, grid, x0)
    Dolo.set_values!(ddr,x0)
 
    steps = 0.5.^collect(0:maxbsteps)
 
    x=x0
    ## memory allocation
-   jres = zeros(n_m,n_m,N_s,n_x,n_x)
-   S_ij = zeros(n_m,n_m,N_s,n_s)
+   jres = zeros(n_m,n_mt,N_s,n_x,n_x)
+   S_ij = zeros(n_m,n_mt,N_s,n_s)
 
    ######### Loop     for it in range(maxit):
    it=0
@@ -71,8 +72,8 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
    while it <= maxit && err_0>tol
       it += 1
 
-      jres = zeros(n_m,n_m,N_s,n_x,n_x)
-      S_ij = zeros(n_m,n_m,N_s,n_s)
+      jres = zeros(n_m,n_mt,N_s,n_x,n_x)
+      S_ij = zeros(n_m,n_mt,N_s,n_s)
 
       t1 = time();
 
@@ -95,19 +96,16 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       err_0 = abs(maximum(res))
 
       jres *= -1.0
-      jres[1,1,1:5,:,:]
       M=jres
-      # M[1,1,1:5,:,:]
 
-      X=zeros(n_m,N_s,n_x,n_x)
+      # X=zeros(n_m,N_s,n_x,n_x)
       for i_m in 1:n_m
-          for j_m in 1:n_m
-              # M = jres[i_m,j_m,:,:,:]
-              X = deepcopy(dres[i_m,:,:,:])
-              for n in 1:N_s
-                 X[n,:,:], M[i_m,j_m,n,:,:] = invert(collect(X[n,:,:]), M[i_m,j_m,n,:,:])
-              end
-          end
+        X = copy(dres[i_m,:,:,:])
+        for j_m in 1:n_mt
+            for n in 1:N_s
+                M[i_m,j_m,n,:,:] = X[n,:,:]\M[i_m,j_m,n,:,:]
+            end
+        end
       end
 
       ####################
@@ -155,8 +153,8 @@ end
 
 function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.AbstractDiscretizedProcess,
                                  init_dr::Dolo.AbstractDecisionRule;grid=Dict(), kwargs...)
-    grid = get_grid(model, options=grid)
-    return time_iteration(model, dprocess, init_dr, grid;  kwargs...)
+    grid = Dolo.get_grid(model, options=grid)
+    return improved_time_iteration(model, dprocess, init_dr, grid;  kwargs...)
 end
 
 function improved_time_iteration(model, dprocess::Dolo.AbstractDiscretizedProcess; grid=Dict(), kwargs...)
