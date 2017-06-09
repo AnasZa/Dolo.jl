@@ -156,126 +156,126 @@ end
 
 
 
-
-function swaplines(i::Int,j::Int,M::Array{Float64,3})
-    n0, n1, n2 = size(M)
-    for k in 1:n1
-        for l in 1:n2
-            t = M[i,k,l]
-            M[i,k,l] = M[j,k,l]
-            M[j,k,l] = t
-        end
-    end
-    return M
-end
-
-function swaplines(i::Int,j::Int,M::Array{Float64,2})
-    n = size(M,2)
-    for k in 1:n
-        t = M[i,k]
-        M[i,k] = M[j,k]
-        M[j,k] = t
-    end
-    return M
-end
-
-function swaplines(i::Int,j::Int,M::Array{Float64,1})
-    n = size(M,1)
-    t = M[i]
-    M[i] = M[j]
-    M[j] = t
-    return M
-end
-
-
-
-function divide(i::Int,c::Float64,M::Array{Float64,3})
-    n0, n1, n2 = size(M)
-    for k in 1:n1
-        for l in 1:n2
-            M[i,k,l] /= c
-        end
-    end
-    return M
-end
-
-function divide(i::Int,c::Float64,M::Array{Float64,2})
-    n = size(M,1)
-    for k in 1:n
-        M[i,k] /= c
-    end
-    return M
-end
-
-
-
-function divide(i::Int,c::Float64,M::Array{Float64,1})
-    M[i] /= c
-    return M
-end
-
-
-function substract(i::Int,j::Int,c::Float64, M::Array{Float64,3})
-    n0, n1, n2 = size(M)
-    for k in 1:n1
-        for l in r1:n2
-            M[i,k,l] = M[i,k,l] - c*M[j,k,l]
-        end
-    end
-    return M
-end
-
-function substract(i::Int,j::Int,c::Float64,M::Array{Float64,2})
-    # Li <- Li - c*Lj
-    n = size(M,1)
-    for k in 1:n
-        M[i,k] = M[i,k] - c*M[j,k]
-    end
-    return M
-end
-
-function substract(i::Int,j::Int,c::Float64,M::Array{Float64,1})
-    M[i] = M[i] - c*M[j]
-    return M
-end
-
-
-
-function invert(A::Array{Float64,2},B::Array{Float64})
-   for i in 1:size(A,1)
-         max_err = -1.0
-         max_i = 0
-
-         for i0 in 1:size(A,1)
-            err = abs(A[i0,i])
-            if err>=max_err
-                max_err = err
-                max_i = i0
-            end
-         end
-
-         swaplines(i,max_i,A)
-         swaplines(i,max_i,B)
-         c = A[i,i]
-         divide(i,c,A)
-         divide(i,c,B)
-
-         for i0 in i+1:size(A,1)
-             f = A[i0,i]
-             substract(i0,i,f,A)
-             substract(i0,i,f,B)
-         end
-   end
-
-   for i in size(A,1):-1:0
-       for i0 in 1:i-1
-           f = A[i0,i]
-           substract(i0,i,f,A)
-           substract(i0,i,f,B)
-       end
-   end
-   return A, B
-end
+# 
+# function swaplines(i::Int,j::Int,M::Array{Float64,3})
+#     n0, n1, n2 = size(M)
+#     for k in 1:n1
+#         for l in 1:n2
+#             t = M[i,k,l]
+#             M[i,k,l] = M[j,k,l]
+#             M[j,k,l] = t
+#         end
+#     end
+#     return M
+# end
+#
+# function swaplines(i::Int,j::Int,M::Array{Float64,2})
+#     n = size(M,2)
+#     for k in 1:n
+#         t = M[i,k]
+#         M[i,k] = M[j,k]
+#         M[j,k] = t
+#     end
+#     return M
+# end
+#
+# function swaplines(i::Int,j::Int,M::Array{Float64,1})
+#     n = size(M,1)
+#     t = M[i]
+#     M[i] = M[j]
+#     M[j] = t
+#     return M
+# end
+#
+#
+#
+# function divide(i::Int,c::Float64,M::Array{Float64,3})
+#     n0, n1, n2 = size(M)
+#     for k in 1:n1
+#         for l in 1:n2
+#             M[i,k,l] /= c
+#         end
+#     end
+#     return M
+# end
+#
+# function divide(i::Int,c::Float64,M::Array{Float64,2})
+#     n = size(M,1)
+#     for k in 1:n
+#         M[i,k] /= c
+#     end
+#     return M
+# end
+#
+#
+#
+# function divide(i::Int,c::Float64,M::Array{Float64,1})
+#     M[i] /= c
+#     return M
+# end
+#
+#
+# function substract(i::Int,j::Int,c::Float64, M::Array{Float64,3})
+#     n0, n1, n2 = size(M)
+#     for k in 1:n1
+#         for l in r1:n2
+#             M[i,k,l] = M[i,k,l] - c*M[j,k,l]
+#         end
+#     end
+#     return M
+# end
+#
+# function substract(i::Int,j::Int,c::Float64,M::Array{Float64,2})
+#     # Li <- Li - c*Lj
+#     n = size(M,1)
+#     for k in 1:n
+#         M[i,k] = M[i,k] - c*M[j,k]
+#     end
+#     return M
+# end
+#
+# function substract(i::Int,j::Int,c::Float64,M::Array{Float64,1})
+#     M[i] = M[i] - c*M[j]
+#     return M
+# end
+#
+#
+#
+# function invert(A::Array{Float64,2},B::Array{Float64})
+#    for i in 1:size(A,1)
+#          max_err = -1.0
+#          max_i = 0
+#
+#          for i0 in 1:size(A,1)
+#             err = abs(A[i0,i])
+#             if err>=max_err
+#                 max_err = err
+#                 max_i = i0
+#             end
+#          end
+#
+#          swaplines(i,max_i,A)
+#          swaplines(i,max_i,B)
+#          c = A[i,i]
+#          divide(i,c,A)
+#          divide(i,c,B)
+#
+#          for i0 in i+1:size(A,1)
+#              f = A[i0,i]
+#              substract(i0,i,f,A)
+#              substract(i0,i,f,B)
+#          end
+#    end
+#
+#    for i in size(A,1):-1:0
+#        for i0 in 1:i-1
+#            f = A[i0,i]
+#            substract(i0,i,f,A)
+#            substract(i0,i,f,B)
+#        end
+#    end
+#    return A, B
+# end
 
 
 function ssmul(A::Array{Float64,3},B::Array{Float64,2})
@@ -325,13 +325,21 @@ function invert_jac(res::AbstractArray,dres::AbstractArray,jres::Array{Float64,5
                     maxit::Int=1000, verbose::Bool=false)
     n_m, N_s, n_x = size(res)
     ddx = zeros(n_m,N_s,n_x)
-    A=deepcopy(dres)
-    B = deepcopy(res)
+    # A=deepcopy(dres)
+    # B = deepcopy(res)
+    # for i_m in 1:n_m
+    #     for n in 1:N_s
+    #        ddx[i_m,n,:]= invert(A[i_m,n,:,:],collect(B[i_m,n,:]))[2]
+    #     end
+    # end
+    A=copy(dres)
+    B = copy(res)
     for i_m in 1:n_m
         for n in 1:N_s
-           ddx[i_m,n,:]= invert(A[i_m,n,:,:],collect(B[i_m,n,:]))[2]
+           ddx[i_m,n,:]= A[i_m,n,:,:]\B[i_m,n,:]
         end
     end
+
 
     # if filt == nothing
     #   error("No filter supplied.")
