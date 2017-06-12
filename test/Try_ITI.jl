@@ -23,19 +23,19 @@ model = Dolo.yaml_import(filename)
 
 
 ################################################################################
-function profile_ITI(m)
-    dr_ITI  = Bruteforce_module.improved_time_iteration(m)
-    return dr_ITI
-end
-
-
-using ProfileView
-
-profile_ITI(model)
-Profile.clear()
-@profile profile_ITI(model)
-ProfileView.view()
-
+# function profile_ITI(m)
+#     dr_ITI  = Bruteforce_module.improved_time_iteration(m)
+#     return dr_ITI
+# end
+#
+#
+# using ProfileView
+#
+# profile_ITI(model)
+# Profile.clear()
+# @profile profile_ITI(model)
+# ProfileView.view()
+#
 
 
 
@@ -201,3 +201,25 @@ plt.plot(df[:k], df[:i])
 plt.ylabel("Investment");
 plt.xlabel("state = k");
 plt.title("Decision Rule");
+
+################################################################################
+# RBC with an AR1 with 2 shocks
+################################################################################
+
+# filename = joinpath(path,"examples","models","rbc_dtcc_ar1_2shocks.yaml")
+# model_ar1_2 = Dolo.yaml_import(filename)
+# @time dr_ITI_ar1_2 = Bruteforce_module.improved_time_iteration(model_ar1_2; verbose=true, tol = 1e-06, smaxit=50)
+# @time dr_TI_ar_2  = Dolo.time_iteration(model_ar1_2; tol_η=1e-08, maxit=1000)
+#
+
+
+
+################################################################################
+# RBC with a sudden stop. Complementarities
+################################################################################
+#
+# filename = joinpath(path,"examples","models","rbc_dtcc_iid.yaml")
+# model_iid = Dolo.yaml_import(filename)
+# @time dr_ITI_iid  = Bruteforce_module.improved_time_iteration(model_iid; verbose=true, tol = 1e-06, smaxit=50)
+# @time dr_TI_iid  = Dolo.time_iteration(model_iid; tol_η=1e-08, maxit=1000)
+  

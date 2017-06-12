@@ -61,6 +61,7 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
    err_2= err_0
    lam0=0.0
 
+   verbose && println(repeat("-", 120))
    verbose && println("N\tf_x\t\td_x\tTime_residuals\tTime_inversion\tTime_search\tLambda_0\tN_invert\tN_search\t")
    verbose && println(repeat("-", 120))
 
@@ -133,6 +134,7 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       verbose && @printf "%-6i% -10e% -17e% -15.4f% -15.4f% -15.5f% -17.3f%-17i%-5i\n" it  err_0  err_2  t2-t1 t3-t2 t4-t3 lam0 it_invert i_bckstps
 
    end
+   verbose && println(repeat("-", 120))
    Dolo.set_values!(ddr,x)
 
    if compute_radius == true
