@@ -66,7 +66,7 @@ n_nodes(dp::DiscretizedIIDProcess) = 0
 n_inodes(dp::DiscretizedIIDProcess, i::Int) = size(dp.integration_nodes, 1)
 inode(dp::DiscretizedIIDProcess, i::Int, j::Int) = dp.integration_nodes[j, :]
 iweight(dp::DiscretizedIIDProcess, i::Int, j::Int) = dp.integration_weights[j]
-node(dip::DiscretizedIIDProcess, i) = zeros(n_inodes(dip, 1))
+node(dp::DiscretizedIIDProcess, i) = zeros(size(dp.integration_nodes,2))
 
 # Normal law
 

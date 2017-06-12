@@ -17,9 +17,10 @@ function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, 
     # P = dprocess.values
     # Q = dprocess.transitions
 
-    n_ms = Dolo.n_nodes(dprocess)  # number of exo states today
+    # n_ms = Dolo.n_nodes(dprocess)  # number of exo states today
+    n_ms = size(x,1)  # number of exo states today
     n_mst = Dolo.n_inodes(dprocess,1)  # number of exo states tomorrow
-    n_mv = size(Dolo.node(dprocess, 1),1)  # number of exo variable
+    # n_mv = size(Dolo.node(dprocess, 1),1)  # number of exo variable
 
     res = zeros(n_ms, N_s, n_x)
 
@@ -156,7 +157,7 @@ end
 
 
 
-# 
+#
 # function swaplines(i::Int,j::Int,M::Array{Float64,3})
 #     n0, n1, n2 = size(M)
 #     for k in 1:n1
@@ -309,7 +310,8 @@ function d_filt_dx(res::Array{Float64,3},jres::Array{Float64,5},S_ij::Array{Floa
         for j in 1:n_mt
             A = jres[i,j,:,:,:]
             if precomputed== false
-                B = dumdr(j,S_ij[i,j,:,:])
+                # B = dumdr(j,S_ij[i,j,:,:])
+                B = dumdr(i,j,S_ij[i,j,:,:])
             else
                 B = dumdr(i,j) #,fut_S[i,j,:,:])
             end

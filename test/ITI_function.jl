@@ -30,17 +30,18 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
 
    parms = model.calibration[:parameters]
 
-   n_m = Dolo.n_nodes(dprocess) # number of exo states today
+  #  n_m = Dolo.n_nodes(dprocess) # number of exo states today
+   n_m = max(Dolo.n_nodes(dprocess), 1) # number of exo states today
    n_mt = Dolo.n_inodes(dprocess,1)  # number of exo states tomorrow
    n_s = length(model.symbols[:states]) # number of endo states
 
    s = Dolo.nodes(grid)
    N_s = size(s,1)
    n_x = size(model.calibration[:controls],1)
-   N_m = Dolo.n_nodes(dprocess) # number of grid points for exo_vars
+  #  N_m = Dolo.n_nodes(dprocess) # number of grid points for exo_vars
 
   #  x0 = [repmat(model.calibration[:controls]',N_s) for i in 1:N_m] #n_x N_s n_m
-   x0 = [init_dr(i, s) for i=1:N_m]
+   x0 = [init_dr(i, s) for i=1:n_m]
    ddr=Dolo.CachedDecisionRule(dprocess, grid, x0)
    ddr_filt = Dolo.CachedDecisionRule(dprocess, grid, x0)
    Dolo.set_values!(ddr,x0)
@@ -66,7 +67,7 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
 
    if compute_radius == true
      res=zeros(res_init)
-     dres = zeros(N_s*N_m, n_x, n_x)
+     dres = zeros(N_s*n_m, n_x, n_x)
    end
 
    while it <= maxit && err_0>tol

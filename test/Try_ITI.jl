@@ -95,7 +95,7 @@ model_ar1 = Dolo.yaml_import(filename)
 @time dr_TI_ar1  = Dolo.time_iteration(model_ar1; tol_η=1e-08, maxit=1000)
 
 
-dprocess = Dolo.discretize( model_ar1.exogenous , [2], [2])
+dprocess = Dolo.discretize( model_ar1.exogenous , [3], [2])
 @time dr2_ITI_ar1  = Bruteforce_module.improved_time_iteration(model_ar1, dprocess; verbose=true, tol = 1e-06, smaxit=50)
 @time dr2_TI_ar1  = Dolo.time_iteration(model_ar1, dprocess; tol_η=1e-08, maxit=1000)
 
@@ -127,6 +127,62 @@ plt.title("Decision Rule");
 
 
 df = Dolo.tabulate(model_ar1, dr2_TI_ar1.dr, :k)
+
+
+fig = plt.figure("Decision Rule, IT-method",figsize=(8.5,5))
+
+plt.subplot(1,2,1)
+plt.plot(df[:k], df[:n])
+plt.ylabel("Hours");
+plt.xlabel("state = k");
+plt.title("Decision Rule");
+
+plt.subplots_adjust(wspace=1)
+# plt.tight_layout()
+
+plt.subplot(1,2,2)
+plt.plot(df[:k], df[:i])
+plt.ylabel("Investment");
+plt.xlabel("state = k");
+plt.title("Decision Rule");
+
+
+
+################################################################################
+# RBC with an IID process
+################################################################################
+
+filename = joinpath(path,"examples","models","rbc_dtcc_iid.yaml")
+model_iid = Dolo.yaml_import(filename)
+@time dr_ITI_iid  = Bruteforce_module.improved_time_iteration(model_iid; verbose=true, tol = 1e-06, smaxit=50)
+@time dr_TI_iid  = Dolo.time_iteration(model_iid; tol_η=1e-08, maxit=1000)
+
+
+
+
+df_ITI = Dolo.tabulate(model_iid, dr_ITI_iid.dr, :k)
+
+import PyPlot
+plt = PyPlot;
+fig = plt.figure("Decision Rule, ITI-method",figsize=(8.5,5))
+
+plt.subplot(1,2,1)
+plt.plot(df_ITI[:k], df_ITI[:n])
+plt.ylabel("Hours");
+plt.xlabel("state = k");
+plt.title("Decision Rule");
+
+plt.subplots_adjust(wspace=1)
+# plt.tight_layout()
+
+plt.subplot(1,2,2)
+plt.plot(df_ITI[:k], df_ITI[:i])
+plt.ylabel("Investment");
+plt.xlabel("state = k");
+plt.title("Decision Rule");
+
+
+df = Dolo.tabulate(model_iid, dr_TI_iid.dr, :k)
 
 
 fig = plt.figure("Decision Rule, IT-method",figsize=(8.5,5))
