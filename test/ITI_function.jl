@@ -48,6 +48,12 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
 
    steps = 0.5.^collect(0:maxbsteps)
 
+   if complementarities == true
+     x_lb = Array{Float64,2}[cat(1, [Dolo.controls_lb(model, Dolo.node(dprocess, i), s[n, :], parms)' for n=1:N_s]...) for i=1:n_m]
+     x_ub = Array{Float64,2}[cat(1, [Dolo.controls_ub(model, Dolo.node(dprocess, i), s[n, :], parms)' for n=1:N_s]...) for i=1:n_m]
+   end
+
+
    x=x0
    ## memory allocation
    jres = zeros(n_m,n_mt,N_s,n_x,n_x)
@@ -94,7 +100,25 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       # dres = permutedims(dres, [axisdim(dres, Axis{:n_v}),axisdim(dres, Axis{:N}),axisdim(dres, Axis{:n_x})])
       dres = reshape(dres, n_m, N_s, n_x, n_x)
       junk, jres, fut_S = euler_residuals(model, s, x,ddr,dprocess,parms, with_jres=true,set_dr=false, jres=jres, S_ij=S_ij)
-        # if there are complementerities, we modify derivatives
+
+      if complementarities == true
+        for i_ms in 1:n_m
+           dx =  x[i_ms] - x_lb[i_ms]
+           res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx)
+        end
+
+        res *= -1
+        dres *= -1
+        jres *= -1
+
+        # i_ms=1
+        # smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx; pos = -1.0)
+        for i_ms in 1:n_m
+           dx =  x_ub[i_ms] -x[i_ms]
+           res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx; pos = -1.0)
+        end
+      end
+
       err_0 = abs(maximum(res))
 
       jres *= -1.0
@@ -124,6 +148,18 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
         i_bckstps +=1
         new_x = x-destack0(tot, n_m)*steps[i_bckstps]
         new_res = euler_residuals(model, s, new_x,ddr,dprocess,parms,set_dr=true)
+
+        if complementarities == true
+          for i_ms in 1:n_m
+             dx =  new_x[i_ms]-x_lb[i_ms]
+             new_res.data[i_ms,:,:] = smooth_right(new_res.data[i_ms,:,:], dx)
+          end
+          for i_ms in 1:n_m
+             dx =  x_ub[i_ms] - new_x[i_ms]
+             new_res.data[i_ms,:,:] = smooth_right(-new_res.data[i_ms,:,:], dx)
+          end
+        end
+
         new_err = maximum(abs, new_res)
       end
       err_2 = maximum(abs,tot)
