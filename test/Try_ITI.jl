@@ -264,3 +264,14 @@ plt.plot(df[:l], df[:lam])
 plt.ylabel("Investment");
 plt.xlabel("state = k");
 plt.title("Decision Rule");
+
+
+
+################################################################################
+# Haggett 1993. Complementarities
+################################################################################
+
+filename = joinpath(path,"examples","models","haggett_1993.yaml")
+model_H = Dolo.yaml_import(filename)
+@time dr_ITI_s  = Bruteforce_module.improved_time_iteration(model_H; complementarities = true, verbose=true, tol = 1e-06, smaxit=50)
+@time dr_TI_s  = Dolo.time_iteration(model_H; tol_η=1e-08, maxit=1000)

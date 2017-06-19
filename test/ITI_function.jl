@@ -104,7 +104,8 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
       if complementarities == true
         for i_ms in 1:n_m
            dx =  x[i_ms] - x_lb[i_ms]
-           res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx)
+          #  res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx)
+           res[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx)
         end
 
         res *= -1
@@ -115,7 +116,7 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
         # smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx; pos = -1.0)
         for i_ms in 1:n_m
            dx =  x_ub[i_ms] -x[i_ms]
-           res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res.data[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx; pos = -1.0)
+           res[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:] = smooth_right(res[i_ms,:,:], dres[i_ms,:,:,:], jres[i_ms,:,:,:,:], dx; pos = -1.0)
         end
       end
 
@@ -152,11 +153,11 @@ function improved_time_iteration(model:: Dolo.AbstractModel, dprocess::Dolo.Abst
         if complementarities == true
           for i_ms in 1:n_m
              dx =  new_x[i_ms]-x_lb[i_ms]
-             new_res.data[i_ms,:,:] = smooth_right(new_res.data[i_ms,:,:], dx)
+             new_res[i_ms,:,:] = smooth_right(new_res[i_ms,:,:], dx)
           end
           for i_ms in 1:n_m
              dx =  x_ub[i_ms] - new_x[i_ms]
-             new_res.data[i_ms,:,:] = smooth_right(-new_res.data[i_ms,:,:], dx)
+             new_res[i_ms,:,:] = smooth_right(-new_res[i_ms,:,:], dx)
           end
         end
 

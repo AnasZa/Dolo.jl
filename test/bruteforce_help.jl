@@ -60,11 +60,11 @@ function euler_residuals(model, s::AbstractArray, x::Array{Array{Float64,2},1}, 
     end
 
 
-    res_AA = AxisArray(res, Axis{:n_m}(1:n_ms), Axis{:N_s}(1:N_s), Axis{:n_x}(1:n_x))
+    # res_AA = AxisArray(res, Axis{:n_m}(1:n_ms), Axis{:N_s}(1:N_s), Axis{:n_x}(1:n_x))
     if with_jres==true
-        return res_AA, jres, S_ij
+        return res, jres, S_ij
     else
-        return res_AA
+        return res
     end
 
 end
