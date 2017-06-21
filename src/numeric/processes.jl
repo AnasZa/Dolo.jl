@@ -42,6 +42,9 @@ node(dp::DiscreteMarkovProcess, i) = dp.values[i, :]
 
 
 function MarkovProduct(mc1::DiscreteMarkovProcess, mc2::DiscreteMarkovProcess)
+    if ~(size(mc1.values,1)==size(mc1.transitions,1)&size(mc2.values,1)==size(mc2.transitions,1))
+        error("Number of colomns in mc.values and mc.transitions must coincide")
+    end
     Q = gridmake(mc1.values, mc2.values)
     P = fkron(mc1.transitions, mc2.transitions)
     return DiscreteMarkovProcess(P, Q)
